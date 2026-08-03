@@ -6,8 +6,8 @@ An automated Python system that curates viral & high-value posts from **X.com (T
 
 ## 🌟 Features
 
-- **X.com Post Curator**: Uses Playwright browser automation to search topics, scroll feeds, and capture top posts with media.
-- **AI LinkedIn Rewriter**: Uses Google Gemini (or high-converting fallback prompts) to reformat posts with hooks, structured value bullets, calls to action, and hashtags.
+- **X.com Post Curator**: Uses Playwright browser automation to search topics, scroll feeds, and capture top posts with media. **Enhanced**: Advanced X search filters (`min_faves`, `min_retweets`), engagement thresholding (likes/retweets), ranking by engagement score, and robust count parsing.
+- **AI LinkedIn Rewriter**: Uses Google Gemini (or high-converting fallback prompts) to reformat posts with hooks, structured value bullets, calls to action, and hashtags. **Enhanced**: Viral hook templates (Question/Contrarian/Stat/Story/Authority), industry-specific bullet frameworks, niche hashtag generation, and richer prompts.
 - **Structured Storage**: Organizes exported posts by date (`Posts/YYYY-MM-DD/Post_XX/`) with `.txt`, `.md`, source metadata, and downloaded high-res images.
 - **Git & Arena.ai Sync**: Integrated with GitHub repo [`kbsingh1399/LinkedIn_Automation`](https://github.com/kbsingh1399/LinkedIn_Automation) for seamless multi-AI collaboration between Antigravity and Arena.ai.
 
