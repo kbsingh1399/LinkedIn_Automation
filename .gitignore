@@ -15,3 +15,8 @@ venv/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Generated posts and media (keep source code clean)
+Posts/
+*.log
+.env.local

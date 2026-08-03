@@ -14,5 +14,11 @@ class Settings(BaseModel):
     headless_browser: bool = False
     browser_timeout_ms: int = 30000
     gemini_api_key: str = Field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
+    # X.com curation enhancements
+    min_likes: int = 50
+    min_retweets: int = 10
+    min_engagement_score: int = 100  # likes + retweets*2 threshold for ranking
+    x_search_filters: str = "min_faves:30 min_retweets:5 filter:safe -filter:replies lang:en"  # Advanced search operators for viral content
+    max_scrolls: int = 5
 
 settings = Settings()
