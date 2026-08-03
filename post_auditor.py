@@ -40,9 +40,9 @@ class PostAuditor:
         raw_text = meta.get("raw_text", "").lower()
         author = meta.get("author", "")
 
-        # 1. Check media presence
+        # 1. Check media presence (images, videos, or GIFs)
         media_files = list(media_dir.glob("*")) if media_dir.exists() else []
-        valid_media = [f for f in media_files if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]]
+        valid_media = [f for f in media_files if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp", ".mp4", ".gif"]]
 
         if not valid_media:
             audit["score"] -= 40

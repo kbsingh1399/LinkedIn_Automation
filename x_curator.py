@@ -115,15 +115,27 @@ class XCurator:
                     if not text or len(text) < 20:
                         continue
 
-                    # Extract native attached image URLs
-                    img_els = await t_el.query_selector_all("div[data-testid='tweetPhoto'] img, img[src*='media']")
+                    # Extract native attached Image, Video, and GIF URLs
                     media_urls = []
+                    
+                    # 1. Images & GIF previews
+                    img_els = await t_el.query_selector_all("div[data-testid='tweetPhoto'] img, img[src*='media'], div[data-testid='videoPlayer'] img")
                     for img in img_els:
                         src = await img.get_attribute("src")
                         if src and "media" in src and "profile_images" not in src and "svg" not in src:
                             media_urls.append(src)
 
-                    # STRICT REQUIREMENT: Skip post if no images attached
+                    # 2. Video & GIF MP4 sources
+                    video_els = await t_el.query_selector_all("video, video source")
+                    for v in video_els:
+                        src = await v.get_attribute("src")
+                        if src and ("video.twimg.com" in src or ".mp4" in src or "blob:" not in src):
+                            media_urls.append(src)
+
+                    # Deduplicate media URLs
+                    media_urls = list(dict.fromkeys(media_urls))
+
+                    # STRICT REQUIREMENT: Skip post if no media (images, videos, or GIFs) attached
                     if not media_urls:
                         continue
 
@@ -197,12 +209,18 @@ class XCurator:
         for idx, url in enumerate(media_urls, start=1):
             try:
                 headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-                res = requests.get(url, headers=headers, timeout=12)
+                res = requests.get(url, headers=headers, timeout=15)
                 if res.status_code == 200:
-                    ext = "jpg"
-                    if "format=png" in url or ".png" in url:
-                        ext = "png"
-                    file_path = save_dir / f"image_{idx}.{ext}"
+                    content_type = res.headers.get("content-type", "").lower()
+                    if "video" in content_type or ".mp4" in url or "video.twimg" in url:
+                        file_path = save_dir / f"video_{idx}.mp4"
+                    elif "gif" in content_type or ".gif" in url or "tweet_video" in url:
+                        file_path = save_dir / f"animation_{idx}.gif"
+                    elif "format=png" in url or ".png" in url:
+                        file_path = save_dir / f"image_{idx}.png"
+                    else:
+                        file_path = save_dir / f"image_{idx}.jpg"
+
                     file_path.write_bytes(res.content)
                     downloaded.append(file_path)
             except Exception as e:
