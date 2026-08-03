@@ -8,18 +8,41 @@ from x_curator import XCurator
 from linkedin_rewriter import LinkedInRewriter
 from post_exporter import PostExporter
 
+def sync_git_pull():
+    print("🔄 Pulling latest changes from GitHub (main branch)...")
+    try:
+        subprocess.run(["git", "pull", "origin", "main"], check=True)
+        print("✅ Local repository is up-to-date with main!")
+    except Exception as e:
+        print(f"⚠️ Git pull warning: {e}")
+
+def sync_git_push():
+    print("🐙 Pushing updates to GitHub (main branch)...")
+    try:
+        subprocess.run(["git", "add", "."], check=True)
+        subprocess.run(["git", "commit", "-m", "Auto-generate LinkedIn posts"], check=True)
+        subprocess.run(["git", "push", "origin", "main"], check=True)
+        print("✅ GitHub push to main completed successfully!")
+    except Exception as e:
+        print(f"⚠️ Git push warning: {e}")
+
 async def main():
     parser = argparse.ArgumentParser(description="LinkedIn Post Automation from X.com")
     parser.add_argument("--topics", type=str, help="Comma-separated topics (e.g., 'AI,Python,Automation')")
     parser.add_argument("--count", type=int, default=4, help="Total number of posts to process daily")
     parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
-    parser.add_argument("--push-git", action="store_true", help="Automatically commit and push generated posts to GitHub")
+    parser.add_argument("--no-pull", action="store_true", help="Skip pulling latest changes before running")
+    parser.add_argument("--push-git", action="store_true", help="Automatically commit and push generated posts to main branch")
     args = parser.parse_args()
+
+    # Always fetch latest changes from main branch before running unless --no-pull is specified
+    if not args.no-pull:
+        sync_git_pull()
 
     topics = [t.strip() for t in args.topics.split(",")] if args.topics else settings.topics
     total_count = args.count
 
-    print(f"🚀 Starting LinkedIn Post Automation")
+    print(f"\n🚀 Starting LinkedIn Post Automation")
     print(f"📌 Target Topics: {topics}")
     print(f"📊 Target Post Count: {total_count}")
 
@@ -52,14 +75,7 @@ async def main():
     print(f"📁 Output Directory: {settings.output_dir.resolve()}")
 
     if args.push_git:
-        print("\n🐙 Pushing updates to GitHub repository...")
-        try:
-            subprocess.run(["git", "add", "."], check=True)
-            subprocess.run(["git", "commit", "-m", "Auto-generate LinkedIn posts"], check=True)
-            subprocess.run(["git", "push", "origin", "main"], check=True)
-            print("✅ GitHub push completed successfully!")
-        except Exception as e:
-            print(f"⚠️ Git push encountered an error: {e}")
+        sync_git_push()
 
 if __name__ == "__main__":
     asyncio.run(main())
