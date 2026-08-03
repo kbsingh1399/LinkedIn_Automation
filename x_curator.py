@@ -3,6 +3,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Dict, List, Any
 import requests
+from PIL import Image, ImageEnhance
 from playwright.async_api import async_playwright
 from config import settings
 
@@ -135,7 +136,7 @@ class XCurator:
                     # Deduplicate media URLs
                     media_urls = list(dict.fromkeys(media_urls))
 
-                    # STRICT REQUIREMENT: Skip post if no media (images, videos, or GIFs) attached
+                    # STRICT REQUIREMENT: Skip post if no media attached
                     if not media_urls:
                         continue
 
@@ -203,26 +204,68 @@ class XCurator:
             return 0
 
     @staticmethod
-    def download_media(media_urls: List[str], save_dir: Path) -> List[Path]:
+    def enhance_image(file_path: Path):
+        """Enhances image quality, sharpness, contrast, and clarity using Pillow."""
+        try:
+            with Image.open(file_path) as img:
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+
+                # 1. Enhance Sharpness (+35%)
+                sharp_enhancer = ImageEnhance.Sharpness(img)
+                img = sharp_enhancer.enhance(1.35)
+
+                # 2. Enhance Contrast (+8%)
+                contrast_enhancer = ImageEnhance.Contrast(img)
+                img = contrast_enhancer.enhance(1.08)
+
+                # 3. Enhance Color Vibrancy (+5%)
+                color_enhancer = ImageEnhance.Color(img)
+                img = color_enhancer.enhance(1.05)
+
+                # Save back with high-quality optimization
+                img.save(file_path, quality=95, optimize=True)
+                print(f"✨ Enhanced image quality: {file_path.name}")
+        except Exception as e:
+            print(f"⚠️ Image enhancement notice for {file_path.name}: {e}")
+
+    @classmethod
+    def download_media(cls, media_urls: List[str], save_dir: Path) -> List[Path]:
         save_dir.mkdir(parents=True, exist_ok=True)
         downloaded = []
         for idx, url in enumerate(media_urls, start=1):
             try:
+                # 1. Automatically Upgrade X Image URL to Maximum Resolution ('name=orig')
+                high_res_url = url
+                if "pbs.twimg.com" in url:
+                    for size_param in ["name=small", "name=medium", "name=900x900", "name=360x360", "name=240x240"]:
+                        high_res_url = high_res_url.replace(size_param, "name=orig")
+                    if "name=" not in high_res_url:
+                        high_res_url += "&name=orig" if "?" in high_res_url else "?name=orig"
+
                 headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-                res = requests.get(url, headers=headers, timeout=15)
+                res = requests.get(high_res_url, headers=headers, timeout=15)
+                
+                # Fallback to standard URL if high_res_url returns non-200
+                if res.status_code != 200:
+                    res = requests.get(url, headers=headers, timeout=15)
+
                 if res.status_code == 200:
                     content_type = res.headers.get("content-type", "").lower()
                     if "video" in content_type or ".mp4" in url or "video.twimg" in url:
                         file_path = save_dir / f"video_{idx}.mp4"
+                        file_path.write_bytes(res.content)
                     elif "gif" in content_type or ".gif" in url or "tweet_video" in url:
                         file_path = save_dir / f"animation_{idx}.gif"
-                    elif "format=png" in url or ".png" in url:
-                        file_path = save_dir / f"image_{idx}.png"
+                        file_path.write_bytes(res.content)
                     else:
-                        file_path = save_dir / f"image_{idx}.jpg"
+                        ext = "png" if "format=png" in url or ".png" in url else "jpg"
+                        file_path = save_dir / f"image_{idx}.{ext}"
+                        file_path.write_bytes(res.content)
+                        # Apply PIL Image Quality & Sharpness Enhancement
+                        cls.enhance_image(file_path)
 
-                    file_path.write_bytes(res.content)
                     downloaded.append(file_path)
             except Exception as e:
-                print(f"[XCurator] Failed to download media {url}: {e}")
+                print(f"[XCurator] Failed to download/enhance media {url}: {e}")
         return downloaded
