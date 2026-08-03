@@ -20,5 +20,6 @@ class Settings(BaseModel):
     min_engagement_score: int = 100  # likes + retweets*2 threshold for ranking
     x_search_filters: str = "min_faves:30 min_retweets:5 filter:safe -filter:replies lang:en"  # Advanced search operators for viral content
     max_scrolls: int = 5
+    user_data_dir: Path = BASE_DIR / "x_user_data"
 
 settings = Settings()

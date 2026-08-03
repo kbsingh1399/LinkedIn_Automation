@@ -1,8 +1,16 @@
 import argparse
 import asyncio
 import os
+import sys
 import subprocess
 from pathlib import Path
+
+# Ensure UTF-8 stdout encoding for Windows console
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 from config import settings
 from x_curator import XCurator
 from linkedin_rewriter import LinkedInRewriter
@@ -28,6 +36,7 @@ def sync_git_push():
 
 async def main():
     parser = argparse.ArgumentParser(description="LinkedIn Post Automation from X.com")
+    parser.add_argument("--login", action="store_true", help="Open browser window to log into X.com once and save session")
     parser.add_argument("--topics", type=str, help="Comma-separated topics (e.g., 'AI,Python,Automation')")
     parser.add_argument("--count", type=int, default=4, help="Total number of posts to process daily")
     parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
@@ -35,8 +44,15 @@ async def main():
     parser.add_argument("--push-git", action="store_true", help="Automatically commit and push generated posts to main branch")
     args = parser.parse_args()
 
+    curator = XCurator(headless=args.headless)
+
+    # Handle interactive login mode
+    if args.login:
+        await curator.open_interactive_login()
+        return
+
     # Always fetch latest changes from main branch before running unless --no-pull is specified
-    if not args.no-pull:
+    if not args.no_pull:
         sync_git_pull()
 
     topics = [t.strip() for t in args.topics.split(",")] if args.topics else settings.topics
@@ -46,7 +62,6 @@ async def main():
     print(f"📌 Target Topics: {topics}")
     print(f"📊 Target Post Count: {total_count}")
 
-    curator = XCurator(headless=args.headless)
     rewriter = LinkedInRewriter()
     exporter = PostExporter()
 
