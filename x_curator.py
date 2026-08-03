@@ -91,8 +91,9 @@ class XCurator:
             if "login" in page.url or "onboarding" in page.url or page.url.strip("/") == "https://x.com":
                 await self.perform_automated_x_login(page)
 
-            # Search topic
-            search_url = f"https://x.com/search?q={urllib.parse.quote(topic)}&f=top"
+            # Search topic using mapped high-precision query or fallback
+            search_query = settings.topic_search_map.get(topic, topic)
+            search_url = f"https://x.com/search?q={urllib.parse.quote(search_query)}&f=top"
             try:
                 await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
                 await page.wait_for_timeout(4000)
