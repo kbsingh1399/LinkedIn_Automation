@@ -41,19 +41,19 @@ $env:GEMINI_API_KEY="your-gemini-api-key"
 ### Run Default Post Curation (4 Posts)
 
 ```bash
-python main.py
+python LinkedIn_Post_Collector.py
 ```
 
 ### Run with Custom Topics & Headless Mode
 
 ```bash
-python main.py --topics "AI Automation, Python, Growth Hacking" --count 4 --headless
+python LinkedIn_Post_Collector.py --topics "AI Automation, Python, Growth Hacking" --count 4 --headless
 ```
 
 ### Run and Automatically Push to GitHub
 
 ```bash
-python main.py --topics "AI, Tech Trends" --count 4 --push-git
+python LinkedIn_Post_Collector.py --topics "AI, Tech Trends" --count 4 --push-git
 ```
 
 ---
