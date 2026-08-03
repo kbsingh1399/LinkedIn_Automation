@@ -1,9 +1,13 @@
 import os
 from pathlib import Path
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent
 POSTS_DIR = BASE_DIR / "Posts"
+
+# Load .env file
+load_dotenv(BASE_DIR / ".env")
 
 class Settings(BaseModel):
     topics: list[str] = Field(
@@ -14,6 +18,8 @@ class Settings(BaseModel):
     headless_browser: bool = False
     browser_timeout_ms: int = 30000
     gemini_api_key: str = Field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
+    x_username: str = Field(default_factory=lambda: os.getenv("X_USERNAME", ""))
+    x_password: str = Field(default_factory=lambda: os.getenv("X_PASSWORD", ""))
     # X.com curation enhancements
     min_likes: int = 50
     min_retweets: int = 10

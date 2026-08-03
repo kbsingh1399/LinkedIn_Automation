@@ -7,9 +7,9 @@ from pathlib import Path
 
 # Ensure UTF-8 stdout encoding for Windows console
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 if sys.stderr and hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8", line_buffering=True)
 
 from config import settings
 from x_curator import XCurator
@@ -46,9 +46,11 @@ async def main():
 
     curator = XCurator(headless=args.headless)
 
-    # Handle interactive login mode
+    # Handle login mode
     if args.login:
-        await curator.open_interactive_login()
+        success = await curator.auto_login()
+        if not success:
+            await curator.open_interactive_login()
         return
 
     # Always fetch latest changes from main branch before running unless --no-pull is specified
