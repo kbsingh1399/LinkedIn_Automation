@@ -1,98 +1,78 @@
 import argparse
 import asyncio
-import os
 import sys
-import subprocess
 from pathlib import Path
-
-# Ensure UTF-8 stdout encoding for Windows console
-if sys.stdout and hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
-if sys.stderr and hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", line_buffering=True)
-
 from config import settings
 from x_curator import XCurator
 from linkedin_rewriter import LinkedInRewriter
 from post_exporter import PostExporter
+from git_sync import GitSync
 
-def sync_git_pull():
-    print("🔄 Pulling latest changes from GitHub (main branch)...")
-    try:
-        subprocess.run(["git", "pull", "origin", "main"], check=True)
-        print("✅ Local repository is up-to-date with main!")
-    except Exception as e:
-        print(f"⚠️ Git pull warning: {e}")
+# Ensure UTF-8 stdout line buffering for Windows CMD/PowerShell
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
-def sync_git_push():
-    print("🐙 Pushing updates to GitHub (main branch)...")
-    try:
-        subprocess.run(["git", "add", "."], check=True)
-        subprocess.run(["git", "commit", "-m", "Auto-generate LinkedIn posts"], check=True)
-        subprocess.run(["git", "push", "origin", "main"], check=True)
-        print("✅ GitHub push to main completed successfully!")
-    except Exception as e:
-        print(f"⚠️ Git push warning: {e}")
+async def run_pipeline(topics: list[str], count_per_topic: int, headless: bool, login: bool, push_git: bool):
+    print("\n🚀 Starting LinkedIn Post Automation")
+    print(f"📌 Target Topics ({len(topics)}): {topics}")
+    print(f"📊 Target Options Per Topic: {count_per_topic} (Total Posts: {len(topics) * count_per_topic})\n")
 
-async def main():
-    parser = argparse.ArgumentParser(description="LinkedIn Post Automation from X.com")
-    parser.add_argument("--login", action="store_true", help="Open browser window to log into X.com once and save session")
-    parser.add_argument("--topics", type=str, help="Comma-separated topics (e.g., 'AI,Python,Automation')")
-    parser.add_argument("--count", type=int, default=4, help="Total number of posts to process daily")
-    parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
-    parser.add_argument("--no-pull", action="store_true", help="Skip pulling latest changes before running")
-    parser.add_argument("--push-git", action="store_true", help="Automatically commit and push generated posts to main branch")
-    args = parser.parse_args()
+    curator = XCurator(headless=headless)
 
-    curator = XCurator(headless=args.headless)
+    if login:
+        await curator.perform_automated_x_login(None)
 
-    # Handle login mode
-    if args.login:
-        success = await curator.auto_login()
-        if not success:
-            await curator.open_interactive_login()
-        return
-
-    # Always fetch latest changes from main branch before running unless --no-pull is specified
-    if not args.no_pull:
-        sync_git_pull()
-
-    topics = [t.strip() for t in args.topics.split(",")] if args.topics else settings.topics
-    total_count = args.count
-
-    print(f"\n🚀 Starting LinkedIn Post Automation")
-    print(f"📌 Target Topics: {topics}")
-    print(f"📊 Target Post Count: {total_count}")
-
+    all_topic_results = {}
     rewriter = LinkedInRewriter()
     exporter = PostExporter()
 
-    all_raw_posts = []
-    posts_per_topic = max(1, total_count // len(topics))
+    total_exported = 0
 
     for topic in topics:
-        print(f"\n🔍 Searching X.com for topic: '{topic}'...")
-        posts = await curator.search_and_curate_posts(topic=topic, max_posts=posts_per_topic)
-        print(f"✅ Found {len(posts)} posts for '{topic}'")
-        all_raw_posts.extend(posts)
-        if len(all_raw_posts) >= total_count:
-            break
+        print(f"🔍 Searching X.com for topic: '{topic}'...")
+        posts = await curator.search_and_curate_posts(topic, max_posts=count_per_topic)
+        print(f"✅ Found {len(posts)} options with images for '{topic}'\n")
 
-    all_raw_posts = all_raw_posts[:total_count]
+        print(f"✍️ Rewriting & exporting {len(posts)} options for topic '{topic}'...")
+        for opt_idx, post_data in enumerate(posts, start=1):
+            rewritten = rewriter.rewrite_for_linkedin(post_data)
+            out_dir = exporter.export_post(topic, opt_idx, post_data, rewritten)
+            total_exported += 1
+            print(f"  └── [Option {opt_idx:02d}] Exported to: {out_dir}")
+            print(f"      Source URL: {post_data.get('url', '')}")
 
-    print(f"\n✍️ Rewriting {len(all_raw_posts)} posts for LinkedIn & exporting...")
-    saved_dirs = []
-    for idx, raw_post in enumerate(all_raw_posts, start=1):
-        rewritten = rewriter.rewrite_for_linkedin(raw_post)
-        out_dir = exporter.export_post(idx, raw_post, rewritten)
-        saved_dirs.append(out_dir)
-        print(f"  └── [{idx}/{len(all_raw_posts)}] Exported to: {out_dir}")
+    print(f"\n🎉 Successfully processed and exported {total_exported} post options across {len(topics)} topics!")
+    print(f"📁 Output Directory: {settings.output_dir.resolve()}\n")
 
-    print(f"\n🎉 Successfully processed {len(saved_dirs)} posts!")
-    print(f"📁 Output Directory: {settings.output_dir.resolve()}")
+    if push_git:
+        print("🐙 Syncing post output dumps with GitHub main branch...")
+        GitSync.sync_and_push(commit_message=f"Auto-dump {total_exported} LinkedIn post options for topics: {', '.join(topics)}")
 
-    if args.push_git:
-        sync_git_push()
+def main():
+    parser = argparse.ArgumentParser(description="LinkedIn Post Automation Collector")
+    parser.add_argument("--topics", type=str, default="AI, Python", help="Comma-separated topics to search")
+    parser.add_argument("--count-per-topic", type=int, default=3, help="Number of post options to curate per topic (default: 3)")
+    parser.add_argument("--headless", action="store_true", default=True, help="Run browser in headless mode")
+    parser.add_argument("--no-headless", action="store_false", dest="headless", help="Run browser visibly")
+    parser.add_argument("--login", action="store_true", help="Automate X.com login step first")
+    parser.add_argument("--no-pull", action="store_true", help="Skip git pull before running")
+    parser.add_argument("--push-git", action="store_true", help="Automatically commit and push output to origin main")
+
+    args = parser.parse_args()
+
+    # Pre-pull unless disabled
+    if not args.no_pull:
+        GitSync.pull_latest()
+
+    topic_list = [t.strip() for t in args.topics.split(",") if t.strip()]
+
+    asyncio.run(run_pipeline(
+        topics=topic_list,
+        count_per_topic=args.count_per_topic,
+        headless=args.headless,
+        login=args.login,
+        push_git=args.push_git
+    ))
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
