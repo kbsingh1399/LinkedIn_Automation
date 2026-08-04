@@ -36,14 +36,22 @@ async def run_autonomous_agent(mode: str, max_feed: int, headless: bool, preprod
         # Auto-sync latest code changes from GitHub / Arena.ai before running cycle
         GitSync.pull_latest()
 
+        # Safely clear stale locks for our isolated profile without affecting other Chrome processes
+        lock_file = publisher.user_data_dir / "SingletonLock"
+        if lock_file.exists():
+            try:
+                lock_file.unlink()
+            except Exception:
+                pass
+
         async with async_playwright() as p:
-            print("🌐 Launching Playwright Chromium persistent context...")
+            print("🌐 Launching Playwright Chromium persistent context (Isolated Port 9223)...")
             context = await p.chromium.launch_persistent_context(
                 user_data_dir=str(publisher.user_data_dir),
                 headless=headless,
                 no_viewport=True,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=["--start-maximized", "--disable-blink-features=AutomationControlled"]
+                args=["--start-maximized", "--remote-debugging-port=9223", "--disable-blink-features=AutomationControlled"]
             )
             page = context.pages[0] if context.pages else await context.new_page()
 
