@@ -1,46 +1,30 @@
 import os
 from pathlib import Path
-from pydantic_settings import BaseSettings
+from pydantic import BaseModel, Field
 
-class Settings(BaseSettings):
-    app_name: str = "LinkedIn Post Automation Engine"
-    env: str = "production"
+BASE_DIR = Path(__file__).resolve().parent
+POSTS_DIR = BASE_DIR / "Posts"
 
-    # Base Paths
-    BASE_DIR: Path = Path(__file__).parent.resolve()
-    output_dir: Path = BASE_DIR / "Posts"
-    user_data_dir: Path = BASE_DIR / "x_user_data"
-    linkedin_user_data_dir: Path = BASE_DIR / "linkedin_user_data"
-
-    # X.com Credentials
-    x_username: str = os.getenv("X_USERNAME", "Kbsingh1399")
-    x_password: str = os.getenv("X_PASSWORD", "Lu$er2hero")
-
-    # LinkedIn Credentials
-    linkedin_username: str = os.getenv("LINKEDIN_USERNAME", "singhkaranbir0248@gmail.com")
-    linkedin_password: str = os.getenv("LINKEDIN_PASSWORD", "Linkedin@Lu$er2hero")
-
-    # Scraper & Curation Settings
-    max_scrolls: int = 6
+class Settings(BaseModel):
+    topics: list[str] = Field(
+        default=["AI Automation", "Python Development", "Tech Trends", "Productivity Tools"]
+    )
+    posts_per_run: int = 4
+    output_dir: Path = POSTS_DIR
+    headless_browser: bool = False
     browser_timeout_ms: int = 30000
+    gemini_api_key: str = Field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
+    
+    # LinkedIn Automation Settings
+    linkedin_user_data_dir: Path = BASE_DIR / "user_data"
+    linkedin_username: str = Field(default_factory=lambda: os.getenv("LINKEDIN_USERNAME", ""))
+    linkedin_password: str = Field(default_factory=lambda: os.getenv("LINKEDIN_PASSWORD", ""))
 
-    # Topic-to-Keyword Search Mapping for X.com
-    topic_search_map: dict = {
-        "MCP Architecture": '"MCP architecture" diagram filter:images',
-        "Multi-Agent Orchestration": 'LangGraph OR CrewAI OR AutoGen "architecture diagram"',
-        "Agentic RAG": '"agentic RAG" flowchart OR "decision tree"',
-        "AI Agent Memory Architecture": '"agent memory" architecture vector filter:images',
-        "Python 3.13 No-GIL": '"free-threading" Python benchmark filter:images',
-        "Asyncio vs Multiprocessing": 'asyncio "vs" multiprocessing cheat sheet',
-        "FastAPI Async Benchmarks": 'FastAPI benchmark latency throughput table',
-        "Vector DB Showdown": 'Pinecone OR Qdrant OR Weaviate "comparison table"',
-        "LLMOps Observability": 'Langfuse OR LangSmith "observability stack" diagram',
-        "RAG Pipeline Architecture": 'RAG pipeline "chunking" "embedding" architecture'
-    }
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        extra = "allow"
+    # X.com curation enhancements
+    min_likes: int = 50
+    min_retweets: int = 10
+    min_engagement_score: int = 100
+    x_search_filters: str = "min_faves:30 min_retweets:5 filter:safe -filter:replies lang:en"
+    max_scrolls: int = 5
 
 settings = Settings()

@@ -1,7 +1,9 @@
 import asyncio
+import random
 import sys
 from typing import List, Dict, Any
 from playwright.async_api import Page
+from utils.playwright_utils import PlaywrightResilience
 from gemini_ai import GeminiAIClient
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -14,115 +16,45 @@ class LinkedInNotificationsEngine:
         self.ai = GeminiAIClient()
 
     async def process_top_20_notifications(self) -> List[Dict[str, Any]]:
-        print(f"\n🔔 Navigating to LinkedIn Notifications (Scanning Top 20, Preproduction Mode: {self.preproduction})...")
-        try:
-            await self.page.goto("https://www.linkedin.com/notifications/", wait_until="domcontentloaded", timeout=30000)
-            await self.page.wait_for_load_state("domcontentloaded")
-            await asyncio.sleep(4)
-        except Exception as e:
-            print(f"⚠️ Notifications load notice: {e}")
+        print(f"\n🔔 Navigating to LinkedIn Notifications...")
+        if not await PlaywrightResilience.safe_goto(self.page, "https://www.linkedin.com/notifications/"):
+            return []
 
-        # Query notification item cards
-        notif_selectors = [
-            "article.nt-card",
-            "div.notification-item",
-            "li.nt-card-list__item",
-            "div[data-urn*='notification']",
-            "a.nt-card__headline-link"
-        ]
+        cards = await self.page.query_selector_all(",".join(PlaywrightResilience.get("notification_card")))
+        processed = []
 
-        cards = []
-        for sel in notif_selectors:
-            found = await self.page.query_selector_all(sel)
-            if found and len(found) > len(cards):
-                cards = found
-
-        print(f"🔍 Found {len(cards)} notification items. Auditing top 20...")
-
-        top_cards = cards[:20]
-        actionable_notifications = []
-
-        for idx, card in enumerate(top_cards, start=1):
+        for idx, card in enumerate(cards[:20], 1):
             try:
-                card_text = (await card.inner_text()).strip()
+                text = await card.inner_text()
+                is_actionable = any(kw in text.lower() for kw in ["replied", "commented", "mentioned"])
 
-                is_unread = await card.query_selector("div.nt-card--unread, span.nt-card__unread-indicator, div[aria-label*='unread']") is not None
-                is_reply_or_mention = any(keyword in card_text.lower() for keyword in ["replied", "mentioned", "commented", "reacted"])
-
-                status_label = "[UNREAD/ACTIONABLE]" if (is_unread or is_reply_or_mention) else "[READ/INFO]"
-                print(f"  [{idx:02d}] {status_label} {card_text[:90]}...")
-
-                if is_unread or is_reply_or_mention:
-                    ai_reply = await self.ai.generate_notification_reply(notification_text=card_text[:200], page=self.page)
-
-                    item = {
-                        "index": idx,
-                        "unread": is_unread,
-                        "summary": card_text[:150],
-                        "ai_reply": ai_reply,
-                        "preproduction": self.preproduction
-                    }
-                    actionable_notifications.append(item)
+                if is_actionable:
+                    ai_reply = await self.ai.generate_notification_reply(text[:200], page=self.page)
 
                     if self.preproduction:
-                        print(f"      🧪 [PREPRODUCTION] Selected for reply. Staged Gemini Reply: \"{ai_reply}\"")
+                        print(f"[{idx:02d}] 🧪 [PREPROD] Reply: {ai_reply[:50]}...")
+                        processed.append({"index": idx, "reply": ai_reply})
                     else:
-                        print(f"      🚀 [LIVE] Opening notification thread...")
-                        link = await card.query_selector("a.nt-card__headline-link, a")
-                        if link:
-                            await link.click()
-                            await asyncio.sleep(4)
+                        await card.click()
+                        await asyncio.sleep(random.uniform(2.0, 3.5))
 
-                            reply_box = await self.page.query_selector("div.comments-comment-box div[contenteditable='true']")
-                            if reply_box:
-                                await reply_box.focus()
-                                await reply_box.fill(ai_reply)
-                                await asyncio.sleep(2)
-                                
-                                submit_btn = None
-                                try:
-                                    js_code = """(editor) => {
-                                        let parent = editor.parentElement;
-                                        while (parent && parent.tagName !== 'MAIN') {
-                                            const btns = Array.from(parent.querySelectorAll('button'));
-                                            const found = btns.find(btn => {
-                                                const text = btn.innerText ? btn.innerText.trim() : '';
-                                                return (text === 'Comment' || text === 'Post') && !btn.hasAttribute('aria-label');
-                                            });
-                                            if (found) return found;
-                                            parent = parent.parentElement;
-                                        }
-                                        return null;
-                                    }"""
-                                    js_handle = await reply_box.evaluate_handle(js_code)
-                                    submit_btn = js_handle.as_element()
-                                    
-                                    if not submit_btn:
-                                        submit_btn = await self.page.query_selector("button.comments-comment-box__submit-button, button.artdeco-button--primary[type='submit']")
-                                except Exception as e:
-                                    print(f"      ├── ⚠️ [DEBUG] Error finding notifications submit button: {e}")
+                        editor = await self.page.query_selector("div[contenteditable='true'], div[role='textbox']")
+                        if editor:
+                            await PlaywrightResilience.human_type_with_mistakes(self.page, editor, ai_reply)
+                            await PlaywrightResilience.random_thinking_pause()
 
-                                if submit_btn:
-                                    await submit_btn.click()
-                                    await asyncio.sleep(random.uniform(3.0, 5.0))
-                                    
-                                    # Verification
-                                    print("      ├── 🔍 [LIVE] Verifying reply was posted...")
-                                    try:
-                                        safe_text = ai_reply[:30].strip().replace('"', '').replace("'", "")
-                                        posted_reply = await self.page.query_selector(f"text=\"{safe_text}\"")
-                                        if posted_reply:
-                                            print(f"      │   ✅ [LIVE VERIFIED] Successfully verified notification reply is in the DOM!")
-                                        else:
-                                            print(f"      │   ⚠️ [WARNING] Reply button clicked, but could not visually verify the reply in the DOM.")
-                                    except Exception as ve:
-                                        print(f"      │   ⚠️ [WARNING] Verification error: {ve}")
+                            submit_btn = await self.page.query_selector("button[aria-label*='Post comment'], button.comments-comment-box__submit-button")
+                            if submit_btn:
+                                await submit_btn.click()
+                                await asyncio.sleep(random.uniform(3.5, 6.0))
+                                print(f"[{idx:02d}] ✅ Reply posted")
 
-                            await self.page.goto("https://www.linkedin.com/notifications/", wait_until="domcontentloaded")
-                            await asyncio.sleep(2)
+                        await PlaywrightResilience.safe_goto(self.page, "https://www.linkedin.com/notifications/")
+                        await asyncio.sleep(1.5)
 
             except Exception as e:
-                print(f"⚠️ Error parsing notification #{idx}: {e}")
+                print(f"⚠️ Notification #{idx} error: {e}")
+                continue
 
-        print(f"\n✅ Completed Notification Audit: Processed {len(actionable_notifications)} actionable items out of top 20.")
-        return actionable_notifications
+        print(f"✅ Notifications processed: {len(processed)}")
+        return processed

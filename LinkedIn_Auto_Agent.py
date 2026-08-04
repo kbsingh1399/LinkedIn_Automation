@@ -2,121 +2,139 @@ import argparse
 import asyncio
 import sys
 import datetime
-from pathlib import Path
+import random
+import signal
 from playwright.async_api import async_playwright
 from config import settings
 from linkedin_publisher import LinkedInPublisher
 from linkedin_feed import LinkedInFeedEngine
 from linkedin_notifications import LinkedInNotificationsEngine
 from linkedin_inbox import LinkedInInboxEngine
-from git_sync import GitSync
+from utils.playwright_utils import PlaywrightResilience
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
-async def run_autonomous_agent(mode: str, max_feed: int, headless: bool, preproduction: bool, loop: bool = False, interval: int = 300):
-    print("\n=====================================================")
-    print("      LinkedIn Autonomous AI Multi-Agent Engine      ")
-    print("=====================================================")
-    print(f"⚙️ Execution Mode: {mode.upper()}")
-    print(f"🛡️ Preproduction Safety: {'ENABLED (Preproduction Safe Staging)' if preproduction else 'DISABLED (LIVE EXECUTION)'}")
-    print(f"🔄 Continuous Loop Mode: {'ENABLED (Interval: ' + str(interval) + 's)' if loop else 'SINGLE PASS'}")
-    print(f"🖥️ Browser Mode: {'Headless' if headless else 'Visible Browser'}\n")
+class LinkedInAutoAgent:
+    def __init__(self):
+        self.running = True
+        signal.signal(signal.SIGINT, self._shutdown)
+        signal.signal(signal.SIGTERM, self._shutdown)
 
-    publisher = LinkedInPublisher(headless=headless)
+    def _shutdown(self, signum, frame):
+        print("\n🛑 Graceful shutdown initiated...")
+        self.running = False
 
-    cycle_count = 0
-    while True:
-        cycle_count += 1
-        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"\n=====================================================")
-        print(f"   Autonomous Agent Cycle #{cycle_count} Start: {now_str}   ")
-        print(f"=====================================================")
+    async def _simulate_distraction(self, context):
+        if random.random() > 0.28:
+            return
+        print("\n🧠 [Human Behavior] Taking a short distraction break...")
+        try:
+            distraction_page = await context.new_page()
+            await distraction_page.goto(random.choice([
+                "https://www.google.com",
+                "https://news.ycombinator.com",
+                "https://www.linkedin.com/search/results/all/"
+            ]), timeout=20000)
+            await asyncio.sleep(random.uniform(2, 4))
 
-        # Auto-sync latest code changes from GitHub / Arena.ai before running cycle
-        GitSync.pull_latest()
+            distraction_duration = random.randint(25, 55)
+            end_time = asyncio.get_event_loop().time() + distraction_duration
+            while asyncio.get_event_loop().time() < end_time:
+                await distraction_page.mouse.wheel(0, random.randint(400, 900))
+                await asyncio.sleep(random.uniform(1.5, 4.0))
+                if random.random() < 0.3:
+                    await distraction_page.mouse.wheel(0, random.randint(-400, -150))
+            await distraction_page.close()
+            print("🧠 [Human Behavior] Distraction finished.\n")
+        except:
+            pass
 
-        # Safely clear stale locks for our isolated profile without affecting other Chrome processes
-        lock_file = publisher.user_data_dir / "SingletonLock"
-        if lock_file.exists():
-            try:
-                lock_file.unlink()
-            except Exception:
-                pass
+    async def run_cycle(self, mode: str, max_feed: int, headless: bool, preproduction: bool):
+        print(f"\n=== Cycle Start: {datetime.datetime.now().isoformat()} ===")
+
+        publisher = LinkedInPublisher(headless=headless)
 
         async with async_playwright() as p:
-            print("🌐 Launching Real Google Chrome persistent context (Isolated Port 9223)...")
             context = await p.chromium.launch_persistent_context(
                 user_data_dir=str(publisher.user_data_dir),
-                channel="chrome",
                 headless=headless,
-                no_viewport=True,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=[
-                    "--start-maximized",
-                    "--remote-debugging-port=9223",
-                    "--disable-background-timer-throttling",
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding",
-                    "--disable-blink-features=AutomationControlled"
-                ]
+                viewport={"width": 1280, "height": 850},
             )
             page = context.pages[0] if context.pages else await context.new_page()
 
-            # Step 1: Ensure LinkedIn Session Logged In
             logged_in = await publisher.ensure_logged_in(page)
             if not logged_in:
-                print("❌ Failed to verify LinkedIn authentication session. Aborting cycle.")
+                print("❌ Login failed. Skipping cycle.")
                 await context.close()
-                if not loop:
-                    break
-                await asyncio.sleep(interval)
-                continue
+                return
 
-            # Sub-Engine 1: Feed Engagement
+            # Occasional viewport resize
+            await PlaywrightResilience.random_viewport_resize(page, context)
+
             if mode in ["feed", "all"]:
-                feed_engine = LinkedInFeedEngine(page=page, preproduction=preproduction)
-                await feed_engine.process_feed_posts(max_posts=max_feed)
+                feed = LinkedInFeedEngine(page=page, preproduction=preproduction)
+                await feed.process_feed_posts(max_feed)
 
-            # Sub-Engine 2: Notifications & Reply Audit
             if mode in ["notifications", "all"]:
-                notif_engine = LinkedInNotificationsEngine(page=page, preproduction=preproduction)
-                await notif_engine.process_top_20_notifications()
+                notif = LinkedInNotificationsEngine(page=page, preproduction=preproduction)
+                await notif.process_top_20_notifications()
 
-            # Sub-Engine 3: Messaging Inbox Audit
             if mode in ["inbox", "all"]:
-                inbox_engine = LinkedInInboxEngine(page=page, preproduction=preproduction)
-                await inbox_engine.process_top_20_messages()
+                inbox = LinkedInInboxEngine(page=page, preproduction=preproduction)
+                await inbox.process_top_20_messages()
 
-            print(f"\n🎉 Autonomous Agent Cycle #{cycle_count} Completed Successfully!")
+            # Occasional page refresh
+            await PlaywrightResilience.occasional_page_refresh(page, 0.18)
+
+            # Distraction simulation
+            await self._simulate_distraction(context)
+
             await context.close()
+        print("✅ Cycle completed.")
 
-        if not loop:
-            break
+    async def run_forever(self, mode: str, max_feed: int, headless: bool, preproduction: bool, interval: int):
+        print(f"🚀 Starting continuous loop (base interval: {interval}s)")
+        cycle = 0
 
-        print(f"\n⏳ Continuous Loop Mode Active: Resting for {interval}s before Cycle #{cycle_count + 1}...")
-        await asyncio.sleep(interval)
+        while self.running:
+            cycle += 1
+            try:
+                await self.run_cycle(mode, max_feed, headless, preproduction)
+            except Exception as e:
+                print(f"⚠️ Cycle error: {e}")
+
+            if not self.running:
+                break
+
+            if random.random() < 0.35:
+                long_break_minutes = random.randint(8, 25)
+                print(f"\n☕ Taking a human break for ~{long_break_minutes} minutes...")
+                await asyncio.sleep(long_break_minutes * 60)
+            else:
+                jitter = interval + random.uniform(-60, 90)
+                print(f"⏳ Sleeping for {jitter:.0f}s before next cycle...")
+                await asyncio.sleep(jitter)
+
+        print("Agent stopped cleanly.")
 
 def main():
-    parser = argparse.ArgumentParser(description="LinkedIn Autonomous AI Multi-Agent Engine")
-    parser.add_argument("--mode", type=str, choices=["feed", "notifications", "inbox", "publish", "all"], default="all", help="Execution mode")
-    parser.add_argument("--max-feed", type=int, default=3, help="Number of feed posts to dwell & engage with per cycle")
-    parser.add_argument("--headless", action="store_true", default=False, help="Run browser in headless mode")
-    parser.add_argument("--live", action="store_true", help="Execute live actions on LinkedIn (Default: Preproduction mode)")
-    parser.add_argument("--loop", action="store_true", help="Run continuously in an infinite loop across all activities")
-    parser.add_argument("--interval", type=int, default=300, help="Pause interval in seconds between continuous loop cycles (default: 300s)")
-
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", default="all", choices=["feed", "notifications", "inbox", "all"])
+    parser.add_argument("--max-feed", type=int, default=3)
+    parser.add_argument("--headless", action="store_true")
+    parser.add_argument("--live", action="store_true")
+    parser.add_argument("--loop", action="store_true")
+    parser.add_argument("--interval", type=int, default=300)
     args = parser.parse_args()
-    preproduction = not args.live
 
-    asyncio.run(run_autonomous_agent(
-        mode=args.mode,
-        max_feed=args.max_feed,
-        headless=args.headless,
-        preproduction=preproduction,
-        loop=args.loop,
-        interval=args.interval
-    ))
+    preproduction = not args.live
+    agent = LinkedInAutoAgent()
+
+    if args.loop:
+        asyncio.run(agent.run_forever(args.mode, args.max_feed, args.headless, preproduction, args.interval))
+    else:
+        asyncio.run(agent.run_cycle(args.mode, args.max_feed, args.headless, preproduction))
 
 if __name__ == "__main__":
     main()
