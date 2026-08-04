@@ -1,23 +1,15 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-.venv/
-env/
-venv/
-
-# Environment variables
+# Environment & Secrets
 .env
+*.env
 
-# Playwright & Browser cache
-.playwright/
+# Browser Profiles
 x_user_data/
+linkedin_user_data/
 
-# OS files
-.DS_Store
-Thumbs.db
+# Python Caches
+__pycache__/
+*.pyc
+.pytest_cache/
 
-# Generated posts and media (keep source code clean)
+# Posts Dump
 Posts/
-*.log
-.env.local
