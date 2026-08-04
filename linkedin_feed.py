@@ -19,33 +19,54 @@ class LinkedInFeedEngine:
 
     async def human_mouse_move(self, start_x: float, start_y: float, end_x: float, end_y: float, steps: int = 15):
         """Simulates smooth human-like mouse movement using cubic Bézier curve interpolation."""
+        if self.page.is_closed():
+            return
         for i in range(1, steps + 1):
+            if self.page.is_closed():
+                return
             t = i / steps
             jitter_x = random.uniform(-2, 2)
             jitter_y = random.uniform(-2, 2)
             cur_x = start_x + (end_x - start_x) * (3 * t * t - 2 * t * t * t) + jitter_x
             cur_y = start_y + (end_y - start_y) * (3 * t * t - 2 * t * t * t) + jitter_y
-            await self.page.mouse.move(cur_x, cur_y)
+            try:
+                await self.page.mouse.move(cur_x, cur_y)
+            except Exception:
+                return
             await asyncio.sleep(random.uniform(0.01, 0.03))
 
     async def scroll_like_human(self, distance: int = 450):
         """Scrolls feed smoothly with randomized micro-bursts and human pauses."""
+        if self.page.is_closed():
+            return
         steps = random.randint(6, 12)
         step_distance = distance // steps
         for _ in range(steps):
+            if self.page.is_closed():
+                return
             delta_y = step_distance + random.randint(-15, 15)
-            await self.page.mouse.wheel(0, delta_y)
+            try:
+                await self.page.mouse.wheel(0, delta_y)
+            except Exception:
+                return
             await asyncio.sleep(random.uniform(0.12, 0.35))
         await asyncio.sleep(random.uniform(0.8, 1.5))
 
     async def dwell_read_post(self, duration_sec: int = 10):
         """Dwells over a feed post while subtly moving cursor across post elements to mimic reading."""
+        if self.page.is_closed():
+            return
         print(f"   👁️ [Stealth] Dwell reading feed post for {duration_sec}s...")
         end_time = asyncio.get_event_loop().time() + duration_sec
         start_x, start_y = random.randint(300, 600), random.randint(250, 450)
-        await self.page.mouse.move(start_x, start_y)
+        try:
+            await self.page.mouse.move(start_x, start_y)
+        except Exception:
+            return
 
         while asyncio.get_event_loop().time() < end_time:
+            if self.page.is_closed():
+                return
             target_x = random.randint(250, 750)
             target_y = random.randint(200, 650)
             await self.human_mouse_move(start_x, start_y, target_x, target_y, steps=random.randint(10, 20))
@@ -194,7 +215,22 @@ class LinkedInFeedEngine:
                 else:
                     # Step A: Like the post
                     print("  ├── [LIVE] Liking post...")
-                    like_btn = await card.query_selector("button.react-button__trigger, button:has-text('Like'), button[aria-label*='Like']")
+                    like_selectors = [
+                        "button.react-button__trigger",
+                        "button[aria-label='Like']",
+                        "button[aria-label*='Like']",
+                        "button[aria-label*='React']",
+                        "button:has-text('Like')"
+                    ]
+                    like_btn = None
+                    for sel in like_selectors:
+                        try:
+                            like_btn = await card.query_selector(sel)
+                            if like_btn:
+                                break
+                        except Exception:
+                            continue
+
                     if like_btn:
                         box = await like_btn.bounding_box()
                         if box:
@@ -204,23 +240,69 @@ class LinkedInFeedEngine:
 
                     # Step B: Hit Comment Section button
                     print("  ├── [LIVE] Opening comment section...")
-                    comment_btn = await card.query_selector("button.comment-button, button:has-text('Comment'), button[aria-label*='Comment']")
+                    comment_selectors = [
+                        "button[aria-label='Comment']",
+                        "button[aria-label*='Comment']",
+                        "button.comment-button",
+                        "button:has-text('Comment')"
+                    ]
+                    comment_btn = None
+                    for sel in comment_selectors:
+                        try:
+                            comment_btn = await card.query_selector(sel)
+                            if comment_btn:
+                                break
+                        except Exception:
+                            continue
+
                     if comment_btn:
                         box = await comment_btn.bounding_box()
                         if box:
                             await self.human_mouse_move(500, 500, box['x'] + box['width']/2, box['y'] + box['height']/2)
                         await comment_btn.click()
-                        await asyncio.sleep(random.uniform(2.0, 3.5))
+                        await asyncio.sleep(random.uniform(2.5, 4.0))
 
                     # Step C: Focus comment box & Human Type comment
-                    comment_editor = await card.query_selector("div.editor-content, div[contenteditable='true'], div[role='textbox']")
+                    editor_selectors = [
+                        "div.tiptap.ProseMirror",
+                        "div[contenteditable='true']",
+                        "div[role='textbox']",
+                        "div.editor-content"
+                    ]
+                    comment_editor = None
+                    for sel in editor_selectors:
+                        try:
+                            comment_editor = await card.query_selector(sel)
+                            if not comment_editor:
+                                comment_editor = await self.page.query_selector(sel)
+                            if comment_editor:
+                                break
+                        except Exception:
+                            continue
+
                     if comment_editor:
-                        print("  ├── [LIVE] Human typing comment...")
+                        print("  ├── [LIVE] Human typing comment into TipTap editor...")
                         await self.human_type(comment_editor, ai_comment)
                         await asyncio.sleep(random.uniform(1.5, 3.0))
 
                         # Step D: Submit Comment
-                        submit_btn = await card.query_selector("button.comments-comment-box__submit-button, button:has-text('Post')")
+                        submit_selectors = [
+                            "button.comments-comment-box__submit-button",
+                            "button[type='submit']",
+                            "button:has-text('Post')",
+                            "button:has-text('Comment')"
+                        ]
+                        submit_btn = None
+                        for sel in submit_selectors:
+                            try:
+                                submit_btn = await card.query_selector(sel)
+                                if not submit_btn:
+                                    submit_btn = await self.page.query_selector(sel)
+                                if submit_btn:
+                                    break
+                            except Exception:
+                                continue
+
                         if submit_btn:
                             print("  ├── [LIVE] Submitting comment...")
                             await submit_btn.click()
