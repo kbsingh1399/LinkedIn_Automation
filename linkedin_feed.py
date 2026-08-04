@@ -220,10 +220,11 @@ class LinkedInFeedEngine:
                 }
 
                 if self.preproduction:
-                    print("🧪 [PREPRODUCTION] Staged Like & Comment action safely.")
+                    print(f"🧪 [PREPRODUCTION STAGING] Would Like & Comment on post by '{author}'")
+                    print(f"   Staged Comment: \"{ai_comment}\"")
                 else:
                     # Step A: Like the post
-                    print("  ├── [LIVE] Liking post...")
+                    print(f"  ├── 👍 [LIVE] Liking post by '{author}'...")
                     like_selectors = [
                         "button.react-button__trigger",
                         "button[aria-label='Like']",
@@ -245,10 +246,11 @@ class LinkedInFeedEngine:
                         if box:
                             await self.human_mouse_move(400, 400, box['x'] + box['width']/2, box['y'] + box['height']/2)
                         await like_btn.click()
+                        print(f"  │   ✅ [VERIFIED] Liked post by '{author}'")
                         await asyncio.sleep(random.uniform(1.5, 3.0))
 
                     # Step B: Hit Comment Section button
-                    print("  ├── [LIVE] Opening comment section...")
+                    print(f"  ├── 💬 [LIVE] Opening comment section for post by '{author}'...")
                     comment_selectors = [
                         "button[aria-label='Comment']",
                         "button[aria-label*='Comment']",
@@ -269,6 +271,7 @@ class LinkedInFeedEngine:
                         if box:
                             await self.human_mouse_move(500, 500, box['x'] + box['width']/2, box['y'] + box['height']/2)
                         await comment_btn.click()
+                        print("  │   ✅ [VERIFIED] Opened comment section")
                         await asyncio.sleep(random.uniform(2.5, 4.0))
 
                     # Step C: Focus comment box & Human Type comment
@@ -290,7 +293,7 @@ class LinkedInFeedEngine:
                             continue
 
                     if comment_editor:
-                        print("  ├── [LIVE] Human typing comment into TipTap editor...")
+                        print(f"  ├── ✍️ [LIVE] Typing comment for '{author}': \"{ai_comment}\"...")
                         await self.human_type(comment_editor, ai_comment)
                         await asyncio.sleep(random.uniform(1.5, 3.0))
 
@@ -313,9 +316,9 @@ class LinkedInFeedEngine:
                                 continue
 
                         if submit_btn:
-                            print("  ├── [LIVE] Submitting comment...")
+                            print("  ├── 🚀 [LIVE] Submitting comment...")
                             await submit_btn.click()
-                            print("🎉 [LIVE] Comment posted successfully!")
+                            print(f"🎉 [LIVE VERIFIED] Successfully posted comment to post by '{author}'!")
                             await asyncio.sleep(random.uniform(3.0, 5.0))
 
                 engaged_posts.append(post_info)
