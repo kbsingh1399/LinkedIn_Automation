@@ -9,6 +9,7 @@ from linkedin_publisher import LinkedInPublisher
 from linkedin_feed import LinkedInFeedEngine
 from linkedin_notifications import LinkedInNotificationsEngine
 from linkedin_inbox import LinkedInInboxEngine
+from git_sync import GitSync
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -31,6 +32,9 @@ async def run_autonomous_agent(mode: str, max_feed: int, headless: bool, preprod
         print(f"\n=====================================================")
         print(f"   Autonomous Agent Cycle #{cycle_count} Start: {now_str}   ")
         print(f"=====================================================")
+
+        # Auto-sync latest code changes from GitHub / Arena.ai before running cycle
+        GitSync.pull_latest()
 
         async with async_playwright() as p:
             print("🌐 Launching Playwright Chromium persistent context...")
