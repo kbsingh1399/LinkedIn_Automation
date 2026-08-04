@@ -48,10 +48,10 @@ class GeminiAIClient:
         return None
 
     def generate_feed_comment(self, post_text: str, author_name: str = "Author", media_desc: str = "") -> str:
-        media_info = f"\nAttached Media/Visual Context: {media_desc}" if media_desc else ""
+        media_info = f"\nAttached Infographic / Media Context: {media_desc}" if media_desc else ""
         prompt = f"""
-You are an influential tech leader & software architect on LinkedIn.
-Generate a concise, highly insightful, professional comment (2-3 sentences) replying to this post by {author_name}.
+You are Karanbir Singh, a Production & Demand Planning Specialist (Supply Chain, SAP MM/SD, AI Systems Engineering).
+Generate a sharp, authentic, peer-level 2-sentence LinkedIn comment replying to this post by {author_name}.
 
 Post Content:
 \"\"\"
@@ -60,17 +60,17 @@ Post Content:
 {media_info}
 
 Requirements:
-1. Add genuine technical or strategic perspective directly related to the post content and attached media (if present).
-2. Use an authentic, engaging, professional tone as a peer.
-3. Absolutely NO generic fluff (do NOT say "Great post!", "Nice share!", or "Thanks for sharing").
-4. Return ONLY the comment text.
+1. Address specific core concepts mentioned in the post text and attached infographic/media (e.g., supply chain bottlenecks, demand forecasting, lead times, system scaling, or process optimization).
+2. Share a valuable, practical engineering/operational insight as an experienced professional.
+3. Absolutely NO generic corporate fluff (NEVER say "Great post!", "Nice share!", "Spot on!", or "Thanks for sharing").
+4. Return ONLY the final comment string.
 """
         result = self.generate_content(prompt)
         if result:
             return result
 
         # Intelligent Fallback
-        return f"Appreciate you highlighting this! The balance between scalable architecture and real-world operational execution is critical for engineering teams."
+        return f"Real-world stress tests highlight exact structural bottlenecks that standard forecasts miss. Strengthening end-to-end visibility and lead-time agility is critical for operational resilience."
 
     def generate_notification_reply(self, notification_text: str, parent_comment: str = "") -> str:
         prompt = f"""

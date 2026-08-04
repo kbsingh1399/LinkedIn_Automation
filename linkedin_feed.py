@@ -167,6 +167,15 @@ class LinkedInFeedEngine:
                     pass
                 await self.scroll_like_human(200)
 
+                # Expand truncated post text (...more / see more)
+                see_more_btn = await card.query_selector("button.see-more, button:has-text('...more'), button:has-text('more'), button[aria-label*='more']")
+                if see_more_btn:
+                    try:
+                        await see_more_btn.click()
+                        await asyncio.sleep(0.8)
+                    except Exception:
+                        pass
+
                 # 2. Extract Text Content
                 text_el = await card.query_selector("div.update-components-text, span.break-words, div[class*='description'], div[class*='update-components-text']")
                 post_text = ""
