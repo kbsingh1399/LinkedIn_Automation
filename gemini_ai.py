@@ -47,20 +47,22 @@ class GeminiAIClient:
 
         return None
 
-    def generate_feed_comment(self, post_text: str, author_name: str = "Author") -> str:
+    def generate_feed_comment(self, post_text: str, author_name: str = "Author", media_desc: str = "") -> str:
+        media_info = f"\nAttached Media/Visual Context: {media_desc}" if media_desc else ""
         prompt = f"""
 You are an influential tech leader & software architect on LinkedIn.
-Generate a concise, insightful, professional comment (2-3 sentences) replying to this post by {author_name}.
+Generate a concise, highly insightful, professional comment (2-3 sentences) replying to this post by {author_name}.
 
 Post Content:
 \"\"\"
 {post_text}
 \"\"\"
+{media_info}
 
 Requirements:
-1. Add genuine professional value or a thought-provoking perspective.
-2. Polite, constructive tone.
-3. No generic fluff like "Great post!" or "Thanks for sharing!".
+1. Add genuine technical or strategic perspective directly related to the post content and attached media (if present).
+2. Use an authentic, engaging, professional tone as a peer.
+3. Absolutely NO generic fluff (do NOT say "Great post!", "Nice share!", or "Thanks for sharing").
 4. Return ONLY the comment text.
 """
         result = self.generate_content(prompt)
@@ -68,7 +70,7 @@ Requirements:
             return result
 
         # Intelligent Fallback
-        return f"Great perspective on this! The balance between clean architecture and operational execution is crucial for scaling systems effectively."
+        return f"Appreciate you highlighting this! The balance between scalable architecture and real-world operational execution is critical for engineering teams."
 
     def generate_notification_reply(self, notification_text: str, parent_comment: str = "") -> str:
         prompt = f"""
