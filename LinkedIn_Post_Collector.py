@@ -6,14 +6,16 @@ from config import settings
 from x_curator import XCurator
 from linkedin_rewriter import LinkedInRewriter
 from post_exporter import PostExporter
+from post_auditor import PostAuditor
+from linkedin_publisher import LinkedInPublisher
 from git_sync import GitSync
 
 # Ensure UTF-8 stdout line buffering for Windows CMD/PowerShell
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
-async def run_pipeline(topics: list[str], count_per_topic: int, headless: bool, login: bool, push_git: bool):
-    print("\n🚀 Starting LinkedIn Post Automation")
+async def run_pipeline(topics: list[str], count_per_topic: int, headless: bool, login: bool, push_git: bool, publish_linkedin: bool):
+    print("\n🚀 Starting Unified LinkedIn Post Automation Engine")
     print(f"📌 Target Topics ({len(topics)}): {topics}")
     print(f"📊 Target Options Per Topic: {count_per_topic} (Total Posts: {len(topics) * count_per_topic})\n")
 
@@ -22,34 +24,54 @@ async def run_pipeline(topics: list[str], count_per_topic: int, headless: bool, 
     if login:
         await curator.perform_automated_x_login(None)
 
-    all_topic_results = {}
     rewriter = LinkedInRewriter()
     exporter = PostExporter()
+    auditor = PostAuditor()
 
     total_exported = 0
+    exported_option_dirs = []
 
     for topic in topics:
-        print(f"🔍 Searching X.com for topic: '{topic}'...")
+        print(f"🔍 Searching X.com live for topic: '{topic}'...")
         posts = await curator.search_and_curate_posts(topic, max_posts=count_per_topic)
-        print(f"✅ Found {len(posts)} options with images for '{topic}'\n")
+        print(f"✅ Found {len(posts)} options with media for '{topic}'\n")
 
         print(f"✍️ Rewriting & exporting {len(posts)} options for topic '{topic}'...")
         for opt_idx, post_data in enumerate(posts, start=1):
             rewritten = rewriter.rewrite_for_linkedin(post_data)
             out_dir = exporter.export_post(topic, opt_idx, post_data, rewritten)
             total_exported += 1
+            exported_option_dirs.append((topic, opt_idx, out_dir))
             print(f"  └── [Option {opt_idx:02d}] Exported to: {out_dir}")
             print(f"      Source URL: {post_data.get('url', '')}")
 
     print(f"\n🎉 Successfully processed and exported {total_exported} post options across {len(topics)} topics!")
     print(f"📁 Output Directory: {settings.output_dir.resolve()}\n")
 
+    # Run automated Quality Audit on exported packages
+    print("🔍 Running Quality & Correlation Audit Engine...")
+    auditor.audit_all_posts()
+
+    if publish_linkedin:
+        print("\n🚀 Publishing Option 01 for each topic to LinkedIn...")
+        publisher = LinkedInPublisher(headless=headless)
+        for topic in topics:
+            clean_topic = topic.replace(' ', '_').replace(':', '').replace('/', '_')
+            opt1_dir = settings.output_dir / "2026-08-04" / clean_topic / "Option_01"
+            if not opt1_dir.exists():
+                from datetime import datetime
+                today_str = datetime.now().strftime("%Y-%m-%d")
+                opt1_dir = settings.output_dir / today_str / clean_topic / "Option_01"
+
+            if opt1_dir.exists():
+                await publisher.publish_post_option(opt1_dir)
+
     if push_git:
         print("🐙 Syncing post output dumps with GitHub main branch...")
         GitSync.sync_and_push(commit_message=f"Auto-dump {total_exported} LinkedIn post options for topics: {', '.join(topics)}")
 
 def main():
-    parser = argparse.ArgumentParser(description="LinkedIn Post Automation Collector")
+    parser = argparse.ArgumentParser(description="LinkedIn Post Automation Collector & Publisher")
     parser.add_argument("--topics", type=str, default="AI, Python", help="Comma-separated topics to search")
     parser.add_argument("--count-per-topic", type=int, default=3, help="Number of post options to curate per topic (default: 3)")
     parser.add_argument("--headless", action="store_true", default=True, help="Run browser in headless mode")
@@ -57,6 +79,7 @@ def main():
     parser.add_argument("--login", action="store_true", help="Automate X.com login step first")
     parser.add_argument("--no-pull", action="store_true", help="Skip git pull before running")
     parser.add_argument("--push-git", action="store_true", help="Automatically commit and push output to origin main")
+    parser.add_argument("--publish-linkedin", action="store_true", help="Automatically publish Option 01 of each topic directly to LinkedIn")
 
     args = parser.parse_args()
 
@@ -71,7 +94,8 @@ def main():
         count_per_topic=args.count_per_topic,
         headless=args.headless,
         login=args.login,
-        push_git=args.push_git
+        push_git=args.push_git,
+        publish_linkedin=args.publish_linkedin
     ))
 
 if __name__ == "__main__":

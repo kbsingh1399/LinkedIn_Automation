@@ -10,10 +10,15 @@ class Settings(BaseSettings):
     BASE_DIR: Path = Path(__file__).parent.resolve()
     output_dir: Path = BASE_DIR / "Posts"
     user_data_dir: Path = BASE_DIR / "x_user_data"
+    linkedin_user_data_dir: Path = BASE_DIR / "linkedin_user_data"
 
     # X.com Credentials
     x_username: str = os.getenv("X_USERNAME", "Kbsingh1399")
     x_password: str = os.getenv("X_PASSWORD", "Lu$er2hero")
+
+    # LinkedIn Credentials
+    linkedin_username: str = os.getenv("LINKEDIN_USERNAME", "singhkaranbir0248@gmail.com")
+    linkedin_password: str = os.getenv("LINKEDIN_PASSWORD", "Linkedin@Lu$er2hero")
 
     # Scraper & Curation Settings
     max_scrolls: int = 6
