@@ -1,9 +1,16 @@
 import os
+import sys
 import json
 import random
 import urllib.request
 from typing import List, Optional
 from dotenv import load_dotenv
+
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 # Automatically load environment variables from .env file
 load_dotenv()
