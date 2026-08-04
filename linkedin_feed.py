@@ -207,7 +207,7 @@ class LinkedInFeedEngine:
                     print(f"🖼️ Media Context: {media_desc}")
 
                 # 6. Generate Curated Gemini AI Comment based on Text + Media
-                ai_comment = self.ai.generate_feed_comment(post_text=post_text, author_name=author, media_desc=media_desc)
+                ai_comment = await self.ai.generate_feed_comment(post_text=post_text, author_name=author, media_desc=media_desc, page=self.page)
                 print(f"🤖 Gemini AI Comment: \"{ai_comment}\"")
 
                 post_info = {
@@ -226,6 +226,7 @@ class LinkedInFeedEngine:
                     # Step A: Like the post
                     print(f"  ├── 👍 [LIVE] Liking post by '{author}'...")
                     like_selectors = [
+                        "button[aria-label*='Reaction button state']",
                         "button.react-button__trigger",
                         "button[aria-label='Like']",
                         "button[aria-label*='Like']",
@@ -242,12 +243,17 @@ class LinkedInFeedEngine:
                             continue
 
                     if like_btn:
-                        box = await like_btn.bounding_box()
-                        if box:
-                            await self.human_mouse_move(400, 400, box['x'] + box['width']/2, box['y'] + box['height']/2)
-                        await like_btn.click()
-                        print(f"  │   ✅ [VERIFIED] Liked post by '{author}'")
-                        await asyncio.sleep(random.uniform(1.5, 3.0))
+                        # Check if already reacted
+                        aria_label = await like_btn.get_attribute("aria-label") or ""
+                        if aria_label and "no reaction" not in aria_label.lower():
+                            print(f"  │   ℹ️ [LIVE] Already reacted to post by '{author}' (aria-label: {aria_label!r}). Skipping click.")
+                        else:
+                            box = await like_btn.bounding_box()
+                            if box:
+                                await self.human_mouse_move(400, 400, box['x'] + box['width']/2, box['y'] + box['height']/2)
+                            await like_btn.click()
+                            print(f"  │   ✅ [VERIFIED] Liked post by '{author}'")
+                            await asyncio.sleep(random.uniform(1.5, 3.0))
 
                     # Step B: Hit Comment Section button
                     print(f"  ├── 💬 [LIVE] Opening comment section for post by '{author}'...")
@@ -298,28 +304,56 @@ class LinkedInFeedEngine:
                         await asyncio.sleep(random.uniform(1.5, 3.0))
 
                         # Step D: Submit Comment
-                        submit_selectors = [
-                            "button.comments-comment-box__submit-button",
-                            "button[type='submit']",
-                            "button:has-text('Post')",
-                            "button:has-text('Comment')"
-                        ]
                         submit_btn = None
-                        for sel in submit_selectors:
-                            try:
-                                submit_btn = await card.query_selector(sel)
-                                if not submit_btn:
-                                    submit_btn = await self.page.query_selector(sel)
-                                if submit_btn:
-                                    break
-                            except Exception:
-                                continue
+                        try:
+                            # Evaluate JS to find the exact primary submit button near the editor
+                            js_code = """(editor) => {
+                                let parent = editor.parentElement;
+                                while (parent && parent.tagName !== 'MAIN') {
+                                    const btns = Array.from(parent.querySelectorAll('button'));
+                                    const found = btns.find(btn => {
+                                        const text = btn.innerText ? btn.innerText.trim() : '';
+                                        return (text === 'Comment' || text === 'Post') && !btn.hasAttribute('aria-label');
+                                    });
+                                    if (found) return found;
+                                    parent = parent.parentElement;
+                                }
+                                return null;
+                            }"""
+                            js_handle = await comment_editor.evaluate_handle(js_code)
+                            submit_btn = js_handle.as_element()
+                            
+                            # Fallback to general selectors if JS eval fails to find it
+                            if not submit_btn:
+                                for sel in ["button.comments-comment-box__submit-button", "button.artdeco-button--primary[type='submit']"]:
+                                    submit_btn = await card.query_selector(sel)
+                                    if submit_btn:
+                                        break
+                        except Exception as e:
+                            print(f"  ├── ⚠️ [DEBUG] Error finding submit button: {e}")
 
                         if submit_btn:
                             print("  ├── 🚀 [LIVE] Submitting comment...")
                             await submit_btn.click()
-                            print(f"🎉 [LIVE VERIFIED] Successfully posted comment to post by '{author}'!")
                             await asyncio.sleep(random.uniform(3.0, 5.0))
+                            
+                            # Verification Step: Check if comment appears in the DOM
+                            print("  ├── 🔍 [LIVE] Verifying comment was posted...")
+                            try:
+                                # We search for any element in the card that contains the AI comment text
+                                # The text might be truncated or have slightly different spacing, so we check a substring
+                                check_text = ai_comment[:30].strip() if len(ai_comment) > 30 else ai_comment.strip()
+                                # Clean up quotes to avoid playwright text selector syntax errors
+                                safe_text = check_text.replace('"', '').replace("'", "")
+                                posted_comment = await card.query_selector(f"text=\"{safe_text}\"")
+                                if posted_comment:
+                                    print(f"  │   ✅ [LIVE VERIFIED] Successfully verified comment is in the DOM for post by '{author}'!")
+                                else:
+                                    print(f"  │   ⚠️ [WARNING] Comment submit button was clicked, but could not visually verify the comment in the DOM.")
+                            except Exception as e:
+                                print(f"  │   ⚠️ [WARNING] Error during comment verification: {e}")
+                            
+                            print(f"🎉 [SUCCESS] Finished processing post by '{author}'!")
 
                 engaged_posts.append(post_info)
 

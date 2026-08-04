@@ -120,7 +120,7 @@ class LinkedInPublisher:
                 headless=self.headless,
                 no_viewport=True,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=["--start-maximized", "--remote-debugging-port=9223", "--disable-blink-features=AutomationControlled"]
+                args=["--new-window", "--start-maximized", "--remote-debugging-port=9223", "--disable-blink-features=AutomationControlled"]
             )
             page = context.pages[0] if context.pages else await context.new_page()
 

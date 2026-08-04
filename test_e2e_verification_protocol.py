@@ -34,7 +34,7 @@ async def run_e2e_verification():
     print("--- [Step 1: Gemini AI Client & Key Rotation Audit] ---")
     ai = GeminiAIClient()
     num_keys = len(ai.api_keys)
-    sample_comment = ai.generate_feed_comment(post_text="Testing supply chain resilience and lead time optimization during flood disruptions.", author_name="Verification Suite")
+    sample_comment = await ai.generate_feed_comment(post_text="Testing supply chain resilience and lead time optimization during flood disruptions.", author_name="Verification Suite")
     ai_passed = sample_comment is not None and len(sample_comment) > 20
     report.log_result(
         step_name="Gemini AI Key Rotation & Content Generation",

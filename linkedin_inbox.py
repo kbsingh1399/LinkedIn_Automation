@@ -97,7 +97,7 @@ class LinkedInInboxEngine:
                 print(f"      📖 Read Entire Conversation History ({len(full_history.splitlines())} messages loaded)")
 
                 # Generate Curated Gemini AI Reply based on Full Chat Thread
-                ai_reply = self.ai.generate_inbox_reply(chat_history=full_history, partner_name=partner_name)
+                ai_reply = await self.ai.generate_inbox_reply(chat_history=full_history, partner_name=partner_name, page=self.page)
 
                 conv_data = {
                     "index": idx,
@@ -119,11 +119,45 @@ class LinkedInInboxEngine:
                             await self.human_type(editor, ai_reply)
                             await asyncio.sleep(random.uniform(1.5, 3.0))
 
-                            send_btn = await self.page.query_selector("button.msg-form__send-button, button:has-text('Send')")
+                            send_btn = None
+                            try:
+                                # Find send button in the messaging form container
+                                js_code = """(editor) => {
+                                    let parent = editor.parentElement;
+                                    while (parent && parent.tagName !== 'MAIN') {
+                                        const btns = Array.from(parent.querySelectorAll('button'));
+                                        const found = btns.find(btn => {
+                                            const text = btn.innerText ? btn.innerText.trim() : '';
+                                            return text === 'Send';
+                                        });
+                                        if (found) return found;
+                                        parent = parent.parentElement;
+                                    }
+                                    return null;
+                                }"""
+                                js_handle = await editor.evaluate_handle(js_code)
+                                send_btn = js_handle.as_element()
+
+                                if not send_btn:
+                                    send_btn = await self.page.query_selector("button.msg-form__send-button, button:has-text('Send')")
+                            except Exception as e:
+                                print(f"      ├── ⚠️ [DEBUG] Error finding messaging send button: {e}")
+
                             if send_btn:
                                 await send_btn.click()
-                                print(f"      🎉 [LIVE] Message sent successfully to {partner_name}!")
                                 await asyncio.sleep(random.uniform(3.0, 5.0))
+                                
+                                # Verification
+                                print("      ├── 🔍 [LIVE] Verifying message was sent...")
+                                try:
+                                    safe_text = ai_reply[:30].strip().replace('"', '').replace("'", "")
+                                    sent_msg = await self.page.query_selector(f"text=\"{safe_text}\"")
+                                    if sent_msg:
+                                        print(f"      │   ✅ [LIVE VERIFIED] Successfully verified message is in the DOM for {partner_name}!")
+                                    else:
+                                        print(f"      │   ⚠️ [WARNING] Send button clicked, but could not visually verify the message in the DOM.")
+                                except Exception as ve:
+                                    print(f"      │   ⚠️ [WARNING] Verification error: {ve}")
 
             except Exception as e:
                 print(f"⚠️ Error processing conversation #{idx}: {e}")

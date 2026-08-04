@@ -8,7 +8,7 @@ from playwright.async_api import async_playwright
 from config import settings
 
 class XCurator:
-    def __init__(self, headless: bool = True):
+    def __init__(self, headless: bool = False):
         self.headless = headless
         self.user_data_dir = settings.user_data_dir
 

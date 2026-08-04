@@ -5,6 +5,7 @@
 # Browser Profiles
 x_user_data/
 linkedin_user_data/
+user_data/
 
 # Python Caches
 __pycache__/
