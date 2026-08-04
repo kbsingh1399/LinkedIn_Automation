@@ -27,7 +27,7 @@ class LinkedInPublisher:
         current_url = page.url.lower()
         print(f"   Current URL: {page.url}")
 
-        if "feed" in current_url or "checkpoint" in current_url and "login" not in current_url:
+        if ("feed" in current_url or "mynetwork" in current_url or "messaging" in current_url) and "login" not in current_url:
             print("✅ Already logged in to LinkedIn!")
             return True
 
@@ -45,25 +45,21 @@ class LinkedInPublisher:
         try:
             # 1. Fill Username / Email
             print("  ├── Filling email...")
-            user_field = await page.wait_for_selector("input#username, input[name='session_key'], input[type='text']", timeout=10000)
-            if user_field:
-                await user_field.fill(username)
-                await page.wait_for_timeout(1000)
+            user_field = page.locator("input[type='email']:visible, input#username:visible, input[name='session_key']:visible").first
+            await user_field.wait_for(timeout=10000)
+            await user_field.fill(username)
+            await page.wait_for_timeout(1000)
 
             # 2. Fill Password
             print("  ├── Filling password...")
-            pass_field = await page.wait_for_selector("input#password, input[name='session_password'], input[type='password']", timeout=10000)
-            if pass_field:
-                await pass_field.fill(password)
-                await page.wait_for_timeout(1000)
+            pass_field = page.locator("input[type='password']:visible, input#password:visible, input[name='session_password']:visible").first
+            await pass_field.wait_for(timeout=10000)
+            await pass_field.fill(password)
+            await page.wait_for_timeout(1000)
 
-            # 3. Click Submit / Sign In
-            print("  ├── Submitting login form...")
-            submit_btn = await page.query_selector("button[type='submit'], button:has-text('Sign in'), button:has-text('Log in')")
-            if submit_btn:
-                await submit_btn.click()
-            else:
-                await page.keyboard.press("Enter")
+            # 3. Press Enter to Submit Login
+            print("  ├── Submitting login form via Enter key...")
+            await pass_field.press("Enter")
 
             await page.wait_for_timeout(6000)
             current_url = page.url.lower()
