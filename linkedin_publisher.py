@@ -116,6 +116,7 @@ class LinkedInPublisher:
         async with async_playwright() as p:
             context = await p.chromium.launch_persistent_context(
                 user_data_dir=str(self.user_data_dir),
+                channel="chrome",
                 headless=self.headless,
                 no_viewport=True,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -213,6 +214,7 @@ async def main():
     async with async_playwright() as p:
         context = await p.chromium.launch_persistent_context(
             user_data_dir=str(publisher.user_data_dir),
+            channel="chrome",
             headless=False,
             no_viewport=True,
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",

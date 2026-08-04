@@ -45,9 +45,10 @@ async def run_autonomous_agent(mode: str, max_feed: int, headless: bool, preprod
                 pass
 
         async with async_playwright() as p:
-            print("🌐 Launching Playwright Chromium persistent context (Isolated Port 9223)...")
+            print("🌐 Launching Real Google Chrome persistent context (Isolated Port 9223)...")
             context = await p.chromium.launch_persistent_context(
                 user_data_dir=str(publisher.user_data_dir),
+                channel="chrome",
                 headless=headless,
                 no_viewport=True,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
