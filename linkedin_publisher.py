@@ -105,13 +105,12 @@ class LinkedInPublisher:
             print("🧪 [DRY RUN] Skipping actual LinkedIn publishing.")
             return True
 
-        async with async_playwright() as p:
             context = await p.chromium.launch_persistent_context(
                 user_data_dir=str(self.user_data_dir),
                 headless=self.headless,
-                viewport={"width": 1280, "height": 850},
+                no_viewport=True,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=["--disable-blink-features=AutomationControlled"]
+                args=["--start-maximized", "--disable-blink-features=AutomationControlled"]
             )
             page = context.pages[0] if context.pages else await context.new_page()
 
@@ -206,8 +205,9 @@ async def main():
         context = await p.chromium.launch_persistent_context(
             user_data_dir=str(publisher.user_data_dir),
             headless=False,
-            viewport={"width": 1280, "height": 850},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            no_viewport=True,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            args=["--start-maximized", "--disable-blink-features=AutomationControlled"]
         )
         page = context.pages[0] if context.pages else await context.new_page()
         await publisher.ensure_logged_in(page)
