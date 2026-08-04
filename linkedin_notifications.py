@@ -53,7 +53,7 @@ class LinkedInNotificationsEngine:
                 print(f"  [{idx:02d}] {status_label} {card_text[:90]}...")
 
                 if is_unread or is_reply_or_mention:
-                    ai_reply = self.ai.generate_notification_reply(notification_text=card_text[:200])
+                    ai_reply = await self.ai.generate_notification_reply(notification_text=card_text[:200], page=self.page)
 
                     item = {
                         "index": idx,
@@ -78,11 +78,45 @@ class LinkedInNotificationsEngine:
                                 await reply_box.focus()
                                 await reply_box.fill(ai_reply)
                                 await asyncio.sleep(2)
-                                submit_btn = await self.page.query_selector("button.comments-comment-box__submit-button")
+                                
+                                submit_btn = None
+                                try:
+                                    js_code = """(editor) => {
+                                        let parent = editor.parentElement;
+                                        while (parent && parent.tagName !== 'MAIN') {
+                                            const btns = Array.from(parent.querySelectorAll('button'));
+                                            const found = btns.find(btn => {
+                                                const text = btn.innerText ? btn.innerText.trim() : '';
+                                                return (text === 'Comment' || text === 'Post') && !btn.hasAttribute('aria-label');
+                                            });
+                                            if (found) return found;
+                                            parent = parent.parentElement;
+                                        }
+                                        return null;
+                                    }"""
+                                    js_handle = await reply_box.evaluate_handle(js_code)
+                                    submit_btn = js_handle.as_element()
+                                    
+                                    if not submit_btn:
+                                        submit_btn = await self.page.query_selector("button.comments-comment-box__submit-button, button.artdeco-button--primary[type='submit']")
+                                except Exception as e:
+                                    print(f"      ├── ⚠️ [DEBUG] Error finding notifications submit button: {e}")
+
                                 if submit_btn:
                                     await submit_btn.click()
-                                    print("      🎉 [LIVE] Notification reply submitted successfully!")
-                                    await asyncio.sleep(3)
+                                    await asyncio.sleep(random.uniform(3.0, 5.0))
+                                    
+                                    # Verification
+                                    print("      ├── 🔍 [LIVE] Verifying reply was posted...")
+                                    try:
+                                        safe_text = ai_reply[:30].strip().replace('"', '').replace("'", "")
+                                        posted_reply = await self.page.query_selector(f"text=\"{safe_text}\"")
+                                        if posted_reply:
+                                            print(f"      │   ✅ [LIVE VERIFIED] Successfully verified notification reply is in the DOM!")
+                                        else:
+                                            print(f"      │   ⚠️ [WARNING] Reply button clicked, but could not visually verify the reply in the DOM.")
+                                    except Exception as ve:
+                                        print(f"      │   ⚠️ [WARNING] Verification error: {ve}")
 
                             await self.page.goto("https://www.linkedin.com/notifications/", wait_until="domcontentloaded")
                             await asyncio.sleep(2)

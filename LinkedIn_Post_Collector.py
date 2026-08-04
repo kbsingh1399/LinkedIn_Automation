@@ -74,7 +74,7 @@ def main():
     parser = argparse.ArgumentParser(description="LinkedIn Post Automation Collector & Publisher")
     parser.add_argument("--topics", type=str, default="AI, Python", help="Comma-separated topics to search")
     parser.add_argument("--count-per-topic", type=int, default=3, help="Number of post options to curate per topic (default: 3)")
-    parser.add_argument("--headless", action="store_true", default=True, help="Run browser in headless mode")
+    parser.add_argument("--headless", action="store_true", default=False, help="Run browser in headless mode")
     parser.add_argument("--no-headless", action="store_false", dest="headless", help="Run browser visibly")
     parser.add_argument("--login", action="store_true", help="Automate X.com login step first")
     parser.add_argument("--no-pull", action="store_true", help="Skip git pull before running")
