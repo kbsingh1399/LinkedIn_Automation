@@ -73,22 +73,19 @@ class PlaywrightResilience:
 
     @staticmethod
     async def human_type_with_mistakes(page: Page, element, text: str):
-        """Types with realistic mistakes and corrections."""
+        """Types with realistic human keystroke timing and natural word pauses, but zero typos/mistakes."""
         await element.focus()
-        await asyncio.sleep(random.uniform(0.3, 0.7))
+        await asyncio.sleep(random.uniform(0.3, 0.6))
 
-        for i, char in enumerate(text):
-            if random.random() < 0.08 and i > 3:
-                wrong_char = random.choice("abcdefghijklmnopqrstuvwxyz")
-                await element.type(wrong_char, delay=random.randint(40, 90))
-                await asyncio.sleep(random.uniform(0.4, 0.9))
-                for _ in range(random.randint(1, 3)):
-                    await page.keyboard.press("Backspace")
-                    await asyncio.sleep(random.uniform(0.15, 0.35))
+        for char in text:
+            # Type each character with realistic human keystroke delay (25ms - 65ms)
+            await element.type(char, delay=random.randint(25, 65))
             
-            await element.type(char, delay=random.randint(25, 75))
-            if random.random() < 0.12:
-                await asyncio.sleep(random.uniform(0.6, 1.4))
+            # Subtle human thinking pause at spaces between words (3% chance)
+            if char == ' ' and random.random() < 0.03:
+                await asyncio.sleep(random.uniform(0.3, 0.8))
+
+        await asyncio.sleep(random.uniform(0.3, 0.6))
 
     @staticmethod
     async def smooth_mouse_move(page: Page, start_x: int, start_y: int, end_x: int, end_y: int, steps: int = 18):

@@ -27,15 +27,27 @@ def log(label: str, status: str, evidence: str):
     print()
 
 
+async def safe_goto(page, url: str, timeout: int = 30000, retries: int = 2):
+    """Resilient navigation wrapper that retries and handles page load errors gracefully."""
+    for attempt in range(retries):
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+            return True
+        except Exception as e:
+            if attempt == retries - 1:
+                print(f"  ⚠️ Navigation failed for {url}: {e}")
+            else:
+                print(f"  ⚠️ Navigation timed out for {url} (attempt {attempt+1}/{retries}). Retrying...")
+                await asyncio.sleep(2)
+    return False
+
+
 async def probe_dom(page, url: str, label: str):
     """Navigate to a page and fingerprint what's actually there."""
     print(f"\n{'─'*60}")
     print(f"  DOM PROBE: {label}  →  {url}")
     print(f"{'─'*60}")
-    try:
-        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-    except Exception as e:
-        print(f"  ⚠️ Navigation error: {e}")
+    await safe_goto(page, url)
     await asyncio.sleep(4)
     await page.mouse.wheel(0, 1200)
     await asyncio.sleep(3)
@@ -119,9 +131,21 @@ async def run_acceptance():
             headless=False,
             no_viewport=True,
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            args=["--new-window", "--start-maximized", "--disable-blink-features=AutomationControlled"]
+            args=["--new-window", "--start-maximized", "--disable-blink-features=AutomationControlled", "--test-type"]
         )
         page = context.pages[0] if context.pages else await context.new_page()
+
+        # Force OS-level maximize via CDP
+        try:
+            cdp = await context.new_cdp_session(page)
+            window_id = (await cdp.send("Browser.getWindowForTarget"))["windowId"]
+            await cdp.send("Browser.setWindowBounds", {
+                "windowId": window_id,
+                "bounds": {"windowState": "maximized"}
+            })
+            await cdp.detach()
+        except Exception:
+            pass
 
         # ── GATE 1: Login ──────────────────────────────────────────
         print("\n[GATE 1] Verifying / Establishing LinkedIn Session...")
@@ -142,12 +166,14 @@ async def run_acceptance():
         print("\n[GATE 2] Feed Page — DOM Probe + Feed Engine (preproduction)...")
         await probe_dom(page, "https://www.linkedin.com/feed/", "FEED")
 
+        # Reset to top after probe scroll so Feed Engine processes Post #1 first
+        await page.evaluate("window.scrollTo(0, 0)")
+        await asyncio.sleep(1.0)
+
         # Now run the feed engine in preproduction
+        # Note: feed engine calls safe_goto internally — no need to navigate here again.
         feed_engine = LinkedInFeedEngine(page=page, preproduction=True)
-        await page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=30000)
-        await asyncio.sleep(4)
-        await page.mouse.wheel(0, 1200)
-        await asyncio.sleep(3)
+        await asyncio.sleep(2)
         feed_posts = await feed_engine.process_feed_posts(max_posts=2)
         log(
             "Feed Engine — Post Detection & Preproduction Cycle",
@@ -160,27 +186,32 @@ async def run_acceptance():
         await probe_dom(page, "https://www.linkedin.com/notifications/", "NOTIFICATIONS")
 
         notif_engine = LinkedInNotificationsEngine(page=page, preproduction=True)
-        await page.goto("https://www.linkedin.com/notifications/", wait_until="domcontentloaded", timeout=30000)
-        await asyncio.sleep(4)
+        # Note: notifications engine calls safe_goto internally.
+        await asyncio.sleep(2)
         notifs = await notif_engine.process_top_20_notifications()
         log(
             "Notifications Engine — Top 20 Audit",
-            PASS if isinstance(notifs, list) else FAIL,
-            f"Notifications found: {len(notifs)}"
+            PASS if len(notifs) > 0 else FAIL,
+            f"Notifications processed: {len(notifs)}"
         )
 
         # ── GATE 4: Inbox / Messaging DOM + Engine ─────────────────
         print("\n[GATE 4] Messaging Page — DOM Probe + Inbox Engine (preproduction)...")
         await probe_dom(page, "https://www.linkedin.com/messaging/", "MESSAGING")
 
+        # Navigate explicitly to messaging so inbox engine starts on the correct URL
+        await safe_goto(page, "https://www.linkedin.com/messaging/")
+        await page.evaluate("window.scrollTo(0, 0)")
+        await asyncio.sleep(1.5)
+
         inbox_engine = LinkedInInboxEngine(page=page, preproduction=True)
-        await page.goto("https://www.linkedin.com/messaging/", wait_until="domcontentloaded", timeout=30000)
-        await asyncio.sleep(4)
+        # Note: inbox engine calls safe_goto internally.
+        await asyncio.sleep(2)
         convs = await inbox_engine.process_top_20_messages()
         log(
             "Inbox Engine — Top 20 Conversations Audit",
             PASS if len(convs) > 0 else FAIL,
-            f"Conversations found: {len(convs)} | Sample: {convs[0]['partner_name'] if convs else 'NONE'}"
+            f"Conversations found: {len(convs)} | Sample: {convs[0].get('partner_name', convs[0].get('partner', 'NONE')) if convs else 'NONE'}"
         )
 
         await context.close()

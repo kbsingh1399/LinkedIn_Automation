@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import os
 import sys
 import datetime
 import random
@@ -26,40 +27,26 @@ class LinkedInAutoAgent:
         self.running = False
 
     async def _simulate_distraction(self, context):
-        if random.random() > 0.28:
-            return
-        print("\n🧠 [Human Behavior] Taking a short distraction break...")
-        try:
-            distraction_page = await context.new_page()
-            await distraction_page.goto(random.choice([
-                "https://www.google.com",
-                "https://news.ycombinator.com",
-                "https://www.linkedin.com/search/results/all/"
-            ]), timeout=20000)
-            await asyncio.sleep(random.uniform(2, 4))
+        # Disabled extra tab creation to avoid opening random pages
+        return
 
-            distraction_duration = random.randint(25, 55)
-            end_time = asyncio.get_event_loop().time() + distraction_duration
-            while asyncio.get_event_loop().time() < end_time:
-                await distraction_page.mouse.wheel(0, random.randint(400, 900))
-                await asyncio.sleep(random.uniform(1.5, 4.0))
-                if random.random() < 0.3:
-                    await distraction_page.mouse.wheel(0, random.randint(-400, -150))
-            await distraction_page.close()
-            print("🧠 [Human Behavior] Distraction finished.\n")
-        except:
-            pass
-
-    async def run_cycle(self, mode: str, max_feed: int, headless: bool, preproduction: bool):
-        print(f"\n=== Cycle Start: {datetime.datetime.now().isoformat()} ===")
+    async def run_cycle(self, mode: str, max_feed: int, headless: bool, preproduction: bool, cycle_num: int = 1):
+        print(f"\n=== Cycle #{cycle_num} Start: {datetime.datetime.now().isoformat()} ===")
 
         publisher = LinkedInPublisher(headless=headless)
 
         async with async_playwright() as p:
             context = await p.chromium.launch_persistent_context(
                 user_data_dir=str(publisher.user_data_dir),
+                channel="chrome",
                 headless=headless,
-                viewport={"width": 1280, "height": 850},
+                viewport={"width": 1440, "height": 900},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-infobars",
+                    "--test-type",
+                ],
             )
             page = context.pages[0] if context.pages else await context.new_page()
 
@@ -73,48 +60,57 @@ class LinkedInAutoAgent:
             await PlaywrightResilience.random_viewport_resize(page, context)
 
             if mode in ["feed", "all"]:
+                # Randomize post engagement target slightly per cycle to avoid fixed pattern detection
+                cycle_max_feed = max(1, int(random.gauss(max_feed, 1.8)))
+                print(f"📊 [Anti-Bot Stealth] Target for Cycle #{cycle_num}: {cycle_max_feed} feed posts (base setting: {max_feed})")
+                
                 feed = LinkedInFeedEngine(page=page, preproduction=preproduction)
-                await feed.process_feed_posts(max_feed)
+                await feed.process_feed_posts(cycle_max_feed)
+
+            # Random reading pause between modules
+            await asyncio.sleep(random.uniform(2.5, 6.0))
 
             if mode in ["notifications", "all"]:
                 notif = LinkedInNotificationsEngine(page=page, preproduction=preproduction)
                 await notif.process_top_20_notifications()
 
+            # Random reading pause between modules
+            await asyncio.sleep(random.uniform(2.0, 5.0))
+
             if mode in ["inbox", "all"]:
                 inbox = LinkedInInboxEngine(page=page, preproduction=preproduction)
                 await inbox.process_top_20_messages()
 
-            # Occasional page refresh
-            await PlaywrightResilience.occasional_page_refresh(page, 0.18)
-
-            # Distraction simulation
+            # Occasional page refresh & mouse scroll jitter
+            await PlaywrightResilience.occasional_page_refresh(page, 0.22)
             await self._simulate_distraction(context)
 
-            await context.close()
-        print("✅ Cycle completed.")
+            print("✅ Cycle completed. Chrome tabs kept open.")
 
     async def run_forever(self, mode: str, max_feed: int, headless: bool, preproduction: bool, interval: int):
-        print(f"🚀 Starting continuous loop (base interval: {interval}s)")
+        print(f"🚀 Starting continuous loop with humanized anti-bot randomness (base interval: {interval}s)")
         cycle = 0
 
         while self.running:
             cycle += 1
             try:
-                await self.run_cycle(mode, max_feed, headless, preproduction)
+                await self.run_cycle(mode, max_feed, headless, preproduction, cycle_num=cycle)
             except Exception as e:
                 print(f"⚠️ Cycle error: {e}")
 
             if not self.running:
                 break
 
+            # 35% chance of an extended human distraction break (e.g. coffee / tab switch)
             if random.random() < 0.35:
                 long_break_minutes = random.randint(8, 25)
-                print(f"\n☕ Taking a human break for ~{long_break_minutes} minutes...")
+                print(f"\n☕ [Anti-Bot Stealth] Taking a human break for ~{long_break_minutes} minutes...")
                 await asyncio.sleep(long_break_minutes * 60)
             else:
-                jitter = interval + random.uniform(-60, 90)
-                print(f"⏳ Sleeping for {jitter:.0f}s before next cycle...")
-                await asyncio.sleep(jitter)
+                # Heavy jitter: vary sleep by -30% to +50% so cycle start times are unpredictable
+                jitter_interval = max(10, interval * random.uniform(0.7, 1.5) + random.uniform(-10, 30))
+                print(f"⏳ [Anti-Bot Stealth] Sleeping for {jitter_interval:.0f}s before next cycle...")
+                await asyncio.sleep(jitter_interval)
 
         print("Agent stopped cleanly.")
 
@@ -131,10 +127,14 @@ def main():
     preproduction = not args.live
     agent = LinkedInAutoAgent()
 
-    if args.loop:
-        asyncio.run(agent.run_forever(args.mode, args.max_feed, args.headless, preproduction, args.interval))
-    else:
-        asyncio.run(agent.run_cycle(args.mode, args.max_feed, args.headless, preproduction))
+    try:
+        if args.loop:
+            asyncio.run(agent.run_forever(args.mode, args.max_feed, args.headless, preproduction, args.interval))
+        else:
+            asyncio.run(agent.run_cycle(args.mode, args.max_feed, args.headless, preproduction))
+    except (KeyboardInterrupt, SystemExit):
+        print("\n🛑 Execution stopped via Ctrl+C. Chrome window and all tabs remain OPEN and UNTOUCHED!")
+        os._exit(0)
 
 if __name__ == "__main__":
     main()
