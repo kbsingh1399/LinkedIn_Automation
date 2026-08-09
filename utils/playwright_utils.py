@@ -73,19 +73,38 @@ class PlaywrightResilience:
 
     @staticmethod
     async def human_type_with_mistakes(page: Page, element, text: str):
-        """Types with realistic human keystroke timing and natural word pauses, but zero typos/mistakes."""
+        """Types with realistic human keystroke timing (25-65ms) and natural word pauses."""
         await element.focus()
         await asyncio.sleep(random.uniform(0.3, 0.6))
 
         for char in text:
-            # Type each character with realistic human keystroke delay (25ms - 65ms)
             await element.type(char, delay=random.randint(25, 65))
-            
-            # Subtle human thinking pause at spaces between words (3% chance)
             if char == ' ' and random.random() < 0.03:
                 await asyncio.sleep(random.uniform(0.3, 0.8))
 
         await asyncio.sleep(random.uniform(0.3, 0.6))
+
+    @staticmethod
+    async def safe_mouse_move(page: Page, target_x: int, target_y: int):
+        """Safely moves mouse cursor to target coordinates with viewport safety bounds."""
+        try:
+            viewport = page.viewport_size or {"width": 1440, "height": 900}
+            safe_x = max(10, min(int(target_x), viewport["width"] - 10))
+            safe_y = max(10, min(int(target_y), viewport["height"] - 10))
+            await page.mouse.move(safe_x, safe_y)
+        except Exception:
+            pass
+
+    @staticmethod
+    async def random_mouse_jitter(page: Page):
+        """Simulates natural idle mouse cursor jittering across viewport."""
+        try:
+            viewport = page.viewport_size or {"width": 1440, "height": 900}
+            target_x = random.randint(100, viewport["width"] - 100)
+            target_y = random.randint(100, viewport["height"] - 100)
+            await PlaywrightResilience.safe_mouse_move(page, target_x, target_y)
+        except Exception:
+            pass
 
     @staticmethod
     async def smooth_mouse_move(page: Page, start_x: int, start_y: int, end_x: int, end_y: int, steps: int = 18):
@@ -93,10 +112,7 @@ class PlaywrightResilience:
             t = i / steps
             x = start_x + (end_x - start_x) * (3 * t**2 - 2 * t**3) + random.uniform(-3, 3)
             y = start_y + (end_y - start_y) * (3 * t**2 - 2 * t**3) + random.uniform(-3, 3)
-            try:
-                await page.mouse.move(int(x), int(y))
-            except:
-                pass
+            await PlaywrightResilience.safe_mouse_move(page, int(x), int(y))
             await asyncio.sleep(random.uniform(0.008, 0.025))
 
     @staticmethod
