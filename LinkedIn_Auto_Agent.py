@@ -261,12 +261,14 @@ class LinkedInAutoAgent:
         from config import find_free_port
         debug_port = find_free_port(19001)
 
-        lock_file = publisher.user_data_dir / "SingletonLock"
-        if lock_file.exists():
-            try:
-                lock_file.unlink()
-            except Exception:
-                pass
+        # Clean stale SingletonLocks before launching Chrome session
+        for lock_name in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
+            sf = publisher.user_data_dir / lock_name
+            if sf.exists():
+                try:
+                    sf.unlink()
+                except Exception:
+                    pass
 
         async with async_playwright() as p:
             context = await p.chromium.launch_persistent_context(
