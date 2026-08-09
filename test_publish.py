@@ -12,7 +12,7 @@ async def main():
     opt_dir = valid_options[0]
     print(f"🧪 Testing LinkedIn Publisher for package: {opt_dir.resolve()}")
     publisher = LinkedInPublisher(headless=False)
-    res = await publisher.publish_post_option(opt_dir, dry_run=True)
+    res = await publisher.publish_post_option(opt_dir, dry_run=False)
     print(f"Result: {res}")
 
 if __name__ == "__main__":
