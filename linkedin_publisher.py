@@ -15,7 +15,7 @@ class ContentQualityGate:
     WEAK_HOOKS = ["interesting post", "here is a post", "today i am sharing", "check out this", "my thoughts on"]
 
     @classmethod
-    def validate(cls, post_text: str, image_path: Optional[Path] = None) -> tuple[bool, str]:
+    def validate(cls, post_text: str, media_files: Optional[Union[Path, list[Path]]] = None) -> tuple[bool, str]:
         if not post_text or not isinstance(post_text, str):
             return False, "Post text is empty"
 
@@ -47,9 +47,11 @@ class ContentQualityGate:
         if not has_cta:
             print("💡 [Quality Gate] Appending engagement question CTA to post.")
 
-        if image_path and Path(image_path).exists():
-            if Path(image_path).stat().st_size < 1024:
-                return False, f"Image asset too small or corrupt ({Path(image_path).stat().st_size} bytes)"
+        if media_files:
+            media_list = [media_files] if isinstance(media_files, Path) else media_files
+            for m_path in media_list:
+                if Path(m_path).exists() and Path(m_path).stat().st_size < 1024:
+                    return False, f"Image asset too small or corrupt ({Path(m_path).name}: {Path(m_path).stat().st_size} bytes)"
 
         return True, "Passed all quality, hook, and readability checks"
 
@@ -61,80 +63,35 @@ class LinkedInPublisher:
         self.user_data_dir.mkdir(parents=True, exist_ok=True)
 
     async def ensure_logged_in(self, page) -> bool:
-        """Navigates to LinkedIn and performs automated login if required."""
-        print("🔍 Verifying LinkedIn login session...")
+        """Verifies session active; returns True if logged in."""
         try:
-            await page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=30000)
-            await page.wait_for_timeout(300)
+            print("🔍 Verifying LinkedIn login session...")
+            await page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=15000)
+            await page.wait_for_timeout(3000)
         except Exception as e:
-            print(f"⚠️ Navigation notice: {e}")
+            print(f"⚠️ Page load notice: {e}")
 
-        current_url = page.url.lower()
         print(f" Current URL: {page.url}")
-
-        if ("feed" in current_url or "mynetwork" in current_url or "messaging" in current_url) and "login" not in current_url:
+        if "feed" in page.url.lower():
             print("✅ Already logged in to LinkedIn!")
             return True
 
-        print("\n🔑 LinkedIn Login Required! Initiating autonomous login...")
-        await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=30000)
-        await page.wait_for_timeout(3000)
-
-        username = settings.linkedin_username
-        password = settings.linkedin_password
-
-        if not username or not password:
-            print("\n⚠️ [ACTION REQUIRED] LinkedIn credentials missing in config/.env. Please log in manually in the opened Chrome window...")
-            # Wait up to 60 seconds for manual login
-            for _ in range(30):
-                await asyncio.sleep(2)
-                if "feed" in page.url.lower() or "mynetwork" in page.url.lower():
-                    print("✅ Manual login detected!")
-                    return True
-            print("❌ Error: Manual login timeout.")
-            return False
-
-        try:
-            # 1. Fill Username / Email
-            print(" ├── Filling email...")
-            user_field = page.locator("input[type='email']:visible, input#username:visible, input[name='session_key']:visible").first
-            await user_field.wait_for(timeout=10000)
-            await user_field.fill(username)
-            await page.wait_for_timeout(1000)
-
-            # 2. Fill Password
-            print(" ├── Filling password...")
-            pass_field = page.locator("input[type='password']:visible, input#password:visible, input[name='session_password']:visible").first
-            await pass_field.wait_for(timeout=10000)
-            await pass_field.fill(password)
-            await page.wait_for_timeout(1000)
-
-            # 3. Press Enter to Submit Login
-            print(" ├── Submitting login form via Enter key...")
-            await pass_field.press("Enter")
-
-            await page.wait_for_timeout(6000)
-            current_url = page.url.lower()
-            print(f" URL after login attempt: {page.url}")
-
-            # Check if 2FA/Security Verification checkpoint appears
-            if "checkpoint" in current_url or "challenge" in current_url:
-                print("\n⚠️ Security Checkpoint / 2FA detected on LinkedIn.")
-                print(" Please complete the verification on the open browser window if prompted...")
-                while "feed" not in page.url.lower() and "checkpoint" in page.url.lower():
-                    await asyncio.sleep(2)
-
-            if "feed" in page.url.lower() or "mynetwork" in page.url.lower():
-                print("✅ Successfully logged in to LinkedIn!")
-                return True
-
-        except Exception as e:
-            print(f"⚠️ Automated LinkedIn login error: {e}")
+        if "login" in page.url.lower() or "signup" in page.url.lower():
+            print("🔑 Profile not logged in. Proceeding with auto-login...")
+            if settings.linkedin_username and settings.linkedin_password:
+                try:
+                    await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
+                    await page.fill("#username", settings.linkedin_username)
+                    await page.fill("#password", settings.linkedin_password)
+                    await page.click("button[type='submit']")
+                    await page.wait_for_timeout(5000)
+                except Exception as login_err:
+                    print(f"❌ Auto-login error: {login_err}")
 
         return "feed" in page.url.lower()
 
     async def publish_post_option(self, option_dir: Path, page: Optional[Any] = None, dry_run: bool = False) -> bool:
-        """Publishes a LinkedIn post option (text + media) directly to LinkedIn."""
+        """Publishes a LinkedIn post option (text + all media assets) directly to LinkedIn."""
         post_txt_file = option_dir / "linkedin_post.txt"
         media_dir = option_dir / "media"
 
@@ -144,20 +101,20 @@ class LinkedInPublisher:
 
         post_text = post_txt_file.read_text(encoding="utf-8").strip()
 
-        # Find media asset
+        # Find all valid media assets in option folder
         media_files = list(media_dir.glob("*")) if media_dir.exists() else []
         valid_media = [f for f in media_files if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp", ".mp4", ".gif"]]
-        media_file = valid_media[0] if valid_media else None
+        valid_media.sort(key=lambda p: p.name)
 
         # Content Quality Gate Verification
-        is_valid, quality_reason = ContentQualityGate.validate(post_text, media_file)
+        is_valid, quality_reason = ContentQualityGate.validate(post_text, valid_media)
         if not is_valid:
             print(f"🛑 [Content Quality Gate Failed] Skipping post option: {quality_reason}")
             return False
 
         print(f"✅ [Content Quality Gate Passed] {quality_reason}")
         print(f"\n🚀 Publishing Post Option to LinkedIn from: {option_dir.name}")
-        print(f" Media Asset: {media_file.name if media_file else 'None (Text Only)'}")
+        print(f" Media Assets ({len(valid_media)} files): {[f.name for f in valid_media] if valid_media else 'None (Text Only)'}")
         print(f" Post Preview: {post_text[:120]}...\n")
 
         if dry_run:
@@ -165,7 +122,7 @@ class LinkedInPublisher:
             return True
 
         if page:
-            return await self._publish_on_page(page, post_text, media_file)
+            return await self._publish_on_page(page, post_text, valid_media)
 
         # Safely clear stale locks for our isolated profile
         lock_file = self.user_data_dir / "SingletonLock"
@@ -203,12 +160,12 @@ class LinkedInPublisher:
                 await context.close()
                 return False
 
-            res = await self._publish_on_page(target_page, post_text, media_file)
+            res = await self._publish_on_page(target_page, post_text, valid_media)
             await context.close()
             return res
 
-    async def _publish_on_page(self, page, post_text: str, media_file: Optional[Path]) -> bool:
-        """Executes actual DOM actions on the LinkedIn feed page to create and submit a post."""
+    async def _publish_on_page(self, page, post_text: str, valid_media: list[Path]) -> bool:
+        """Executes actual DOM actions on the LinkedIn feed page to create and submit a post with all media assets."""
         try:
             if "feed" not in page.url.lower():
                 await page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded")
@@ -254,9 +211,9 @@ class LinkedInPublisher:
 
             await page.wait_for_timeout(3000)
 
-            # 2. Upload media file if present
-            if media_file:
-                print(f" ├── Attaching media file: {media_file.name} ...")
+            # 2. Upload ALL media files if present
+            if valid_media:
+                print(f" ├── Attaching {len(valid_media)} media asset(s): {[f.name for f in valid_media]} ...")
                 
                 # Try clicking 'Add media' / 'Add a photo' icon inside post modal
                 media_btn_selectors = [
@@ -278,7 +235,7 @@ class LinkedInPublisher:
                     except Exception:
                         continue
 
-                # Locate file input element
+                # Locate file input element and upload all media paths simultaneously
                 file_input = await page.query_selector("input[type='file']")
                 if not file_input:
                     file_inputs = await page.query_selector_all("input[type='file']")
@@ -286,8 +243,9 @@ class LinkedInPublisher:
                         file_input = file_inputs[0]
 
                 if file_input:
-                    await file_input.set_input_files(str(media_file.resolve()))
-                    print(f" └── Attached file input: {media_file.name}")
+                    media_paths = [str(f.resolve()) for f in valid_media]
+                    await file_input.set_input_files(media_paths)
+                    print(f" └── Successfully attached all {len(valid_media)} file inputs simultaneously!")
                     await page.wait_for_timeout(4000)
 
                     # Click 'Next' or 'Done' on media editor modal if presented
