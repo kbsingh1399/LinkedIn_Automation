@@ -23,6 +23,10 @@ class LinkedInFeedEngine:
         if not await PlaywrightResilience.safe_goto(self.page, "https://www.linkedin.com/feed/"):
             return []
 
+        if await PlaywrightResilience.verify_security_checkpoint(self.page):
+            print("🚨 [Security Gate] LinkedIn CAPTCHA / Security Checkpoint detected in Feed. Halting module.")
+            return []
+
         # Reset to top first, then human-scroll down to load initial DOM cards
         await self.page.evaluate("window.scrollTo(0, 0)")
         await asyncio.sleep(0.8)

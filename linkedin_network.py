@@ -4,7 +4,7 @@ import sys
 from typing import List, Dict, Any
 from playwright.async_api import Page
 from utils.playwright_utils import PlaywrightResilience
-from engagement_tracker import already_engaged, mark_engaged, check_daily_limit
+from engagement_tracker import already_engaged, mark_engaged, check_daily_limit, is_weekly_limit_reached
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -24,9 +24,17 @@ class LinkedInNetworkEngine:
             await PlaywrightResilience.human_scroll(self.page, random.randint(500, 800))
             await asyncio.sleep(1.2)
 
-        # Rate Limit Guard: Cap at 20 connection requests per day for safety
+        # Rate Limit Guard: Check daily limit (20/day) and weekly limit (80/week)
         if check_daily_limit("connection_request", 20):
-            print("🛑 [Rate Limit] Reached 20 connection requests today. Skipping network module.")
+            print("🛑 [Daily Rate Limit] Reached 20 connection requests today. Skipping network module.")
+            return []
+
+        if is_weekly_limit_reached("connection_request"):
+            print("🛑 [Weekly Rate Limit] Reached 80 connection requests in last 7 days. Skipping network module.")
+            return []
+
+        if already_engaged("connection_request_weekly_limit", "system"):
+            print("🛑 [Weekly Safety Hold] LinkedIn Weekly Limit was previously triggered. Holding network module.")
             return []
 
         card_selectors = [
@@ -120,7 +128,18 @@ class LinkedInNetworkEngine:
                     await connect_btn.click(force=True)
                     await asyncio.sleep(random.uniform(2.0, 3.5))
 
-                    # Check for "Send without a note" modal popup if presented
+                    # Safety Check 1: Detect LinkedIn Weekly Invitation Limit Modal Popup
+                    body_text = (await self.page.inner_text("body")).lower()
+                    if "reached your weekly invitation limit" in body_text or "weekly invitation limit" in body_text:
+                        print("🛑 [CRITICAL SAFETY] LinkedIn Weekly Invitation Limit reached! Pausing network requests for 7 days.")
+                        mark_engaged("connection_request_weekly_limit", "system")
+                        # Close the modal dialog
+                        dismiss_btn = await self.page.query_selector("button[aria-label*='Dismiss'], button[aria-label*='Got it'], button:has-text('Got it')")
+                        if dismiss_btn:
+                            await dismiss_btn.click()
+                        break
+
+                    # Safety Check 2: Handle "Send without a note" modal popup if presented
                     send_without_note_btn = await self.page.query_selector(
                         "button[aria-label*='Send without a note'], "
                         "button:has-text('Send without a note'), "

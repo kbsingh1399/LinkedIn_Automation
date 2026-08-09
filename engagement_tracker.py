@@ -103,12 +103,44 @@ def get_today_count(eng_type: str = None) -> int:
             return row[0] if row else 0
 
 
+def get_weekly_count(eng_type: str = None) -> int:
+    """Return total engagements completed in the last 7 days (rolling 168 hours)."""
+    import time
+    seven_days_ago_ts = int(time.time()) - (7 * 24 * 3600)
+    with _conn() as c:
+        if eng_type:
+            row = c.execute(
+                "SELECT COUNT(*) FROM engagements WHERE type=? AND engaged_at >= ?", (eng_type, seven_days_ago_ts)
+            ).fetchone()
+            return row[0] if row else 0
+        else:
+            row = c.execute(
+                "SELECT COUNT(*) FROM engagements WHERE engaged_at >= ?", (seven_days_ago_ts,)
+            ).fetchone()
+            return row[0] if row else 0
+
+
 DAILY_CAPS = {
     "feed_comment": 20,
     "notification_reply": 20,
     "inbox_reply": 25,
     "connection_request": 20,
 }
+
+WEEKLY_CAPS = {
+    "feed_comment": 100,
+    "notification_reply": 100,
+    "inbox_reply": 120,
+    "connection_request": 80,
+}
+
+
+def is_weekly_limit_reached(eng_type: str) -> bool:
+    """Check if weekly safety limit for the engagement type has been reached."""
+    cap = WEEKLY_CAPS.get(eng_type, 100)
+    count = get_weekly_count(eng_type)
+    return count >= cap
+
 
 TXT_TRACKER_PATH = Path(__file__).parent / "daily_engagement_tracker.txt"
 
