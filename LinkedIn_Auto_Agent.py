@@ -259,9 +259,15 @@ class LinkedInAutoAgent:
 
         publisher = LinkedInPublisher(headless=headless)
         from config import find_free_port
+        import subprocess
         debug_port = find_free_port(19001)
 
-        # Clean stale SingletonLocks before launching Chrome session
+        # Kill any orphaned Chrome processes holding the profile lock, then clean lock files
+        subprocess.run(
+            ["taskkill", "/F", "/IM", "chrome.exe", "/T"],
+            capture_output=True
+        )
+        await asyncio.sleep(1.5)
         for lock_name in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
             sf = publisher.user_data_dir / lock_name
             if sf.exists():
