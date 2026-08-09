@@ -152,13 +152,36 @@ class LinkedInAutoAgent:
             print("⚠️ No unpublished post options remaining in queue.")
             return
 
-        # Time slot hours: 9 AM (Slot 1), 1 PM (Slot 2), 5 PM (Slot 3), 9 PM (Slot 4)
+        # Intelligent Slot Theme Keywords
         slots = [
-            {"slot_num": 1, "hour": 9},
-            {"slot_num": 2, "hour": 13},
-            {"slot_num": 3, "hour": 17},
-            {"slot_num": 4, "hour": 21},
+            {"slot_num": 1, "hour": 9, "keywords": ["leadership", "python", "automation", "agent"]},
+            {"slot_num": 2, "hour": 13, "keywords": ["s&op", "meme", "demand", "power bi", "humor"]},
+            {"slot_num": 3, "hour": 17, "keywords": ["quant", "trading", "strategy", "corporate"]},
+            {"slot_num": 4, "hour": 21, "keywords": ["motivation", "career", "public", "advice"]}
         ]
+
+        import json
+
+        def score_option_for_slot(opt_dir: Path, slot_keywords: list[str]) -> float:
+            """Calculates a composite score combining X.com engagement metrics and slot theme relevance."""
+            score = 0.0
+            meta_file = opt_dir / "source_info.json"
+            topic_str = opt_dir.parent.name.lower()
+
+            if meta_file.exists():
+                try:
+                    data = json.loads(meta_file.read_text(encoding="utf-8"))
+                    score += data.get("engagement_score", 0)
+                    topic_str += " " + str(data.get("topic", "")).lower()
+                except Exception:
+                    pass
+
+            # Add bonus for slot topic alignment
+            for kw in slot_keywords:
+                if kw in topic_str:
+                    score += 500.0
+
+            return score
 
         for slot in slots:
             slot_key = f"published_slot_{today_str}_{slot['slot_num']}"
@@ -166,9 +189,18 @@ class LinkedInAutoAgent:
                 continue
 
             if now.hour >= slot["hour"] and unpublished_options:
-                target_option = unpublished_options.pop(0)
+                # Rank unpublished options by slot relevance + engagement score
+                ranked_options = sorted(
+                    unpublished_options,
+                    key=lambda opt: score_option_for_slot(opt, slot["keywords"]),
+                    reverse=True
+                )
+
+                target_option = ranked_options[0]
+                unpublished_options.remove(target_option)
+
                 print(f"📅 [Scheduled Publisher] Slot #{slot['slot_num']} ({slot['hour']}:00) due!")
-                print(f" └── Publishing next option in queue: {target_option.name} ({target_option.parent.name})")
+                print(f" 🎯 Intelligent Selection: Picked '{target_option.parent.name}/{target_option.name}' (Score: {score_option_for_slot(target_option, slot['keywords']):.0f})")
 
                 try:
                     publisher = LinkedInPublisher(headless=False)
