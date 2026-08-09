@@ -481,17 +481,3 @@ Reply rules:
             "Hey, thanks for reaching out! Happy to connect and chat more.",
             "Appreciate the message — let me know how I can help."
         ])
-
-
-        if page:
-            result = await self.generate_content_web(prompt, page, image_path=image_path)
-            if result:
-                return result.strip().strip('"').strip("'")
-
-        result = await self.generate_content(prompt, page=page)
-        if result:
-            return result.strip().strip('"').strip("'")
-        return random.choice([
-            "Hey, thanks for reaching out! Happy to connect and chat more.",
-            "Appreciate the message — let me know how I can help."
-        ])
