@@ -6,7 +6,7 @@ cd /d "C:\Users\SIGMA\Documents\LinkedIn_Automation"
 echo ========================================================
 echo 🚀 Launching LinkedIn Autonomous Agent at %time%
 echo ========================================================
-python LinkedIn_Auto_Agent.py --mode all
+python LinkedIn_Auto_Agent.py --mode all --live
 
 echo ========================================================
 echo ✅ Cycle Complete. Sleeping for 2 hours (7200 seconds)...
