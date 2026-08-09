@@ -19,10 +19,10 @@ class LinkedInNetworkEngine:
         if not await PlaywrightResilience.safe_goto(self.page, "https://www.linkedin.com/mynetwork/"):
             return []
 
-        await self.page.evaluate("window.scrollTo(0, 0)")
-        await asyncio.sleep(1.0)
-        await PlaywrightResilience.human_scroll(self.page, random.randint(400, 700))
-        await asyncio.sleep(2.0)
+        # Human scroll down to trigger lazy-loading of recommendation cards
+        for _ in range(3):
+            await PlaywrightResilience.human_scroll(self.page, random.randint(500, 800))
+            await asyncio.sleep(1.2)
 
         # Rate Limit Guard: Cap at 20 connection requests per day for safety
         if check_daily_limit("connection_request", 20):
@@ -33,8 +33,12 @@ class LinkedInNetworkEngine:
             "div.discover-person-card",
             "li.discover-item",
             "div.member-card",
+            "div.artdeco-card",
             "section.discover-cohort",
-            "div[data-view-name*='pymk']"
+            "div[data-view-name*='pymk']",
+            "div[data-view-name*='person']",
+            "div.entity-result",
+            "li.artdeco-list__item"
         ]
 
         cards = []
@@ -42,10 +46,24 @@ class LinkedInNetworkEngine:
             found = await self.page.query_selector_all(sel)
             if found and len(found) > len(cards):
                 cards = found
+                print(f"✅ [MyNetwork] Found {len(found)} cards via: {sel}")
                 break
 
+        # Fallback: Find cards by finding all visible Connect buttons and traversing to parent cards
         if not cards:
-            cards = await self.page.query_selector_all("button[aria-label*='Connect']")
+            connect_btns = await self.page.query_selector_all("button[aria-label*='Connect'], button[aria-label*='Invite'], button:has-text('Connect')")
+            print(f"🔍 Found {len(connect_btns)} Connect buttons on MyNetwork viewport.")
+            for btn in connect_btns:
+                parent = btn
+                for _ in range(4):
+                    parent_handle = await parent.evaluate_handle("el => el.parentElement")
+                    parent_el = parent_handle.as_element() if parent_handle else None
+                    if parent_el:
+                        parent = parent_el
+                    else:
+                        break
+                if parent:
+                    cards.append(parent)
 
         print(f"🔍 Found {len(cards)} recommendation cards on MyNetwork page.")
         processed = []
