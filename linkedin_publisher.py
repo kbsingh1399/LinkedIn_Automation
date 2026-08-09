@@ -211,23 +211,51 @@ class LinkedInPublisher:
 
             await page.wait_for_timeout(3000)
 
-            # 2. Upload ALL media files directly via input[type='file'] (Prevents OS File Chooser Dialog Popup)
+            # 2. Upload ALL media files via file chooser interception (Prevents OS Dialog Popup & Guarantees Upload)
             if valid_media:
                 print(f" ├── Attaching {len(valid_media)} media asset(s): {[f.name for f in valid_media]} ...")
                 media_paths = [str(f.resolve()) for f in valid_media]
+                attached = False
 
-                # Locate hidden/visible file input element directly in modal DOM
-                file_input = await page.query_selector("input[type='file']")
-                if not file_input:
-                    file_inputs = await page.query_selector_all("input[type='file']")
-                    if file_inputs:
-                        file_input = file_inputs[0]
+                # Strategy A: Use expect_file_chooser() with media trigger icon
+                media_btn_selectors = [
+                    "button[aria-label*='media']",
+                    "button[aria-label*='photo']",
+                    "button[aria-label*='Photo']",
+                    "button.share-promoted-detour-button",
+                    "button:has-text('Add media')",
+                    "button:has-text('Media')"
+                ]
+                for m_sel in media_btn_selectors:
+                    try:
+                        m_btn = await page.query_selector(m_sel)
+                        if m_btn and await m_btn.is_visible():
+                            async with page.expect_file_chooser(timeout=4000) as fc_info:
+                                await m_btn.click(force=True)
+                            file_chooser = await fc_info.value
+                            await file_chooser.set_files(media_paths)
+                            attached = True
+                            print(f" └── Intercepted file chooser and attached all {len(valid_media)} files headlessly!")
+                            await page.wait_for_timeout(3000)
+                            break
+                    except Exception:
+                        continue
 
-                if file_input:
-                    await file_input.set_input_files(media_paths)
-                    print(f" └── Successfully attached all {len(valid_media)} media files headlessly (No OS dialog popup)!")
-                    await page.wait_for_timeout(4000)
+                # Strategy B: Fallback to direct input[type='file'] if expect_file_chooser skipped
+                if not attached:
+                    file_input = await page.query_selector("input[type='file']")
+                    if not file_input:
+                        file_inputs = await page.query_selector_all("input[type='file']")
+                        if file_inputs:
+                            file_input = file_inputs[0]
 
+                    if file_input:
+                        await file_input.set_input_files(media_paths)
+                        attached = True
+                        print(f" └── Attached all {len(valid_media)} media files via fallback input element!")
+                        await page.wait_for_timeout(3000)
+
+                if attached:
                     # Click 'Next' or 'Done' on media editor modal if presented
                     next_media_selectors = [
                         "button:has-text('Next')",
