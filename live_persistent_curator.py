@@ -80,6 +80,9 @@ async def curate_with_persistent_chrome(topics: list[str], total_count: int = 4,
     print(f"📌 Target Topics: {topics}")
     print(f"📊 Target Count: {total_count}\n")
 
+    curated_posts = []
+    posts_per_topic = max(1, total_count // len(topics)) if topics else 1
+
     lock_file = user_data_dir / "SingletonLock"
     if lock_file.exists():
         try:
