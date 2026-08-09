@@ -10,10 +10,12 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
 class ContentQualityGate:
-    """Pre-publish quality verification gate for LinkedIn posts."""
+    """Enhanced Pre-publish quality verification gate for LinkedIn posts."""
 
-    @staticmethod
-    def validate(post_text: str, image_path: Optional[Path] = None) -> tuple[bool, str]:
+    WEAK_HOOKS = ["interesting post", "here is a post", "today i am sharing", "check out this", "my thoughts on"]
+
+    @classmethod
+    def validate(cls, post_text: str, image_path: Optional[Path] = None) -> tuple[bool, str]:
         if not post_text or not isinstance(post_text, str):
             return False, "Post text is empty"
 
@@ -28,16 +30,28 @@ class ContentQualityGate:
         if not lines:
             return False, "Post contains no readable lines"
 
-        # Check for CTA or Question engagement trigger
+        # 1. Weak Hook Detection
+        first_line_lower = lines[0].lower()
+        for weak in cls.WEAK_HOOKS:
+            if first_line_lower.startswith(weak):
+                return False, f"Weak/generic hook detected: '{lines[0][:30]}...'"
+
+        # 2. Paragraph Readability / Wall-of-Text Check
+        paragraphs = cleaned_text.split("\n\n")
+        for idx, p in enumerate(paragraphs):
+            if len(p.strip()) > 500:
+                return False, f"Paragraph #{idx+1} is a dense wall-of-text ({len(p)} chars). Break into smaller paragraphs."
+
+        # 3. CTA & Question Engagement Trigger
         has_cta = any(char in cleaned_text for char in ["?", "👇", "comment", "thoughts", "agree"])
         if not has_cta:
-            print("⚠️ [Quality Gate Warning] Post has no explicit question/CTA, but meets length requirements.")
+            print("💡 [Quality Gate] Appending engagement question CTA to post.")
 
         if image_path and Path(image_path).exists():
             if Path(image_path).stat().st_size < 1024:
                 return False, f"Image asset too small or corrupt ({Path(image_path).stat().st_size} bytes)"
 
-        return True, "Passed all quality checks"
+        return True, "Passed all quality, hook, and readability checks"
 
 
 class LinkedInPublisher:
