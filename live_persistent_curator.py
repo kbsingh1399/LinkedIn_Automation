@@ -172,10 +172,12 @@ async def curate_with_persistent_chrome(topics: list[str], total_count: int = 4,
                     try:
                         like_el = await t_el.query_selector("[data-testid='like'] span")
                         if like_el:
-                            likes = int(float(await like_el.inner_text().replace('K', '000').replace('M', '000000')))
+                            l_txt = await like_el.inner_text()
+                            likes = int(float(l_txt.replace('K', '000').replace('M', '000000')))
                         rt_el = await t_el.query_selector("[data-testid='retweet'] span")
                         if rt_el:
-                            retweets = int(float(await rt_el.inner_text().replace('K', '000').replace('M', '000000')))
+                            r_txt = await rt_el.inner_text()
+                            retweets = int(float(r_txt.replace('K', '000').replace('M', '000000')))
                     except:
                         pass
 
@@ -208,7 +210,8 @@ async def curate_with_persistent_chrome(topics: list[str], total_count: int = 4,
 
     for idx, post_data in enumerate(curated_posts, start=1):
         rewritten = rewriter.rewrite_for_linkedin(post_data)
-        out_dir = exporter.export_post(idx, post_data, rewritten)
+        topic_name = post_data.get("topic", "Tech")
+        out_dir = exporter.export_post(topic_name, idx, post_data, rewritten)
         print(f"  └── [{idx}/{len(curated_posts)}] Exported to: {out_dir}")
         print(f"      Source URL: {post_data['url']}")
 
