@@ -257,9 +257,37 @@ class LinkedInPublisher:
             # 2. Upload media file if present
             if media_file:
                 print(f" ├── Attaching media file: {media_file.name} ...")
+                
+                # Try clicking 'Add media' / 'Add a photo' icon inside post modal
+                media_btn_selectors = [
+                    "button[aria-label*='media']",
+                    "button[aria-label*='photo']",
+                    "button[aria-label*='Photo']",
+                    "button.share-promoted-detour-button",
+                    "button:has-text('Add media')",
+                    "button:has-text('Media')"
+                ]
+                for m_sel in media_btn_selectors:
+                    try:
+                        m_btn = await page.query_selector(m_sel)
+                        if m_btn and await m_btn.is_visible():
+                            await m_btn.click(force=True)
+                            print(f" └── Clicked media trigger icon using selector: {m_sel}")
+                            await page.wait_for_timeout(2000)
+                            break
+                    except Exception:
+                        continue
+
+                # Locate file input element
                 file_input = await page.query_selector("input[type='file']")
+                if not file_input:
+                    file_inputs = await page.query_selector_all("input[type='file']")
+                    if file_inputs:
+                        file_input = file_inputs[0]
+
                 if file_input:
                     await file_input.set_input_files(str(media_file.resolve()))
+                    print(f" └── Attached file input: {media_file.name}")
                     await page.wait_for_timeout(4000)
 
                     # Click 'Next' or 'Done' on media editor modal if presented
