@@ -10,7 +10,16 @@ POSTS_DIR = BASE_DIR / "Posts"
 
 class Settings(BaseModel):
     topics: list[str] = Field(
-        default=["AI Automation", "Python Development", "Tech Trends", "Productivity Tools"]
+        default=[
+            "AI agents supply chain",
+            "S&OP demand planning AI",
+            "algorithmic trading strategies",
+            "Python business automation",
+            "Power BI Python analytics",
+            "AI logistics inventory optimization",
+            "production AI agents",
+            "data driven supply chain manufacturing"
+        ]
     )
     posts_per_run: int = 4
     output_dir: Path = POSTS_DIR

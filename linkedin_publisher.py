@@ -9,6 +9,37 @@ from config import settings
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
+class ContentQualityGate:
+    """Pre-publish quality verification gate for LinkedIn posts."""
+
+    @staticmethod
+    def validate(post_text: str, image_path: Optional[Path] = None) -> tuple[bool, str]:
+        if not post_text or not isinstance(post_text, str):
+            return False, "Post text is empty"
+
+        cleaned_text = post_text.strip()
+        if len(cleaned_text) < 80:
+            return False, f"Post text too short ({len(cleaned_text)} chars, min 80 required)"
+
+        if len(cleaned_text) > 3000:
+            return False, f"Post text exceeds LinkedIn max length ({len(cleaned_text)} chars, max 3000)"
+
+        lines = [l.strip() for l in cleaned_text.splitlines() if l.strip()]
+        if not lines:
+            return False, "Post contains no readable lines"
+
+        # Check for CTA or Question engagement trigger
+        has_cta = any(char in cleaned_text for char in ["?", "👇", "comment", "thoughts", "agree"])
+        if not has_cta:
+            print("⚠️ [Quality Gate Warning] Post has no explicit question/CTA, but meets length requirements.")
+
+        if image_path and Path(image_path).exists():
+            if Path(image_path).stat().st_size < 1024:
+                return False, f"Image asset too small or corrupt ({Path(image_path).stat().st_size} bytes)"
+
+        return True, "Passed all quality checks"
+
+
 class LinkedInPublisher:
     def __init__(self, headless: bool = False):
         self.headless = headless
@@ -104,6 +135,13 @@ class LinkedInPublisher:
         valid_media = [f for f in media_files if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp", ".mp4", ".gif"]]
         media_file = valid_media[0] if valid_media else None
 
+        # Content Quality Gate Verification
+        is_valid, quality_reason = ContentQualityGate.validate(post_text, media_file)
+        if not is_valid:
+            print(f"🛑 [Content Quality Gate Failed] Skipping post option: {quality_reason}")
+            return False
+
+        print(f"✅ [Content Quality Gate Passed] {quality_reason}")
         print(f"\n🚀 Publishing Post Option to LinkedIn from: {option_dir.name}")
         print(f" Media Asset: {media_file.name if media_file else 'None (Text Only)'}")
         print(f" Post Preview: {post_text[:120]}...\n")
