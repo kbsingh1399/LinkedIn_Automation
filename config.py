@@ -11,14 +11,18 @@ POSTS_DIR = BASE_DIR / "Posts"
 class Settings(BaseModel):
     topics: list[str] = Field(
         default=[
-            "AI agents supply chain",
-            "S&OP demand planning AI",
-            "algorithmic trading strategies",
-            "Python business automation",
-            "Power BI Python analytics",
-            "AI logistics inventory optimization",
-            "production AI agents",
-            "data driven supply chain manufacturing"
+            "S&OP leadership decision making",
+            "Power BI meme Excel vs Power BI",
+            "Python supply chain automation",
+            "side project while working indie hacker",
+            "AI agent fail AI vs Excel",
+            "demand planning meme S&OP humor",
+            "Power BI career advice data",
+            "building in public reality corporate to indie",
+            "Python career switch automation",
+            "supply chain quant alternative data",
+            "corporate product building innovation",
+            "decision making under uncertainty supply chain"
         ]
     )
     posts_per_run: int = 4
