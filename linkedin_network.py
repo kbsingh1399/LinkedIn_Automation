@@ -14,15 +14,15 @@ class LinkedInNetworkEngine:
         self.page = page
         self.preproduction = preproduction
 
-    async def process_connection_requests(self, max_requests: int = 15) -> List[Dict[str, Any]]:
-        print(f"\n🤝 Navigating to LinkedIn MyNetwork (Target: {max_requests} connection requests)...")
+    async def process_connection_requests(self, max_requests: int = 3) -> List[Dict[str, Any]]:
+        print(f"\n🤝 Navigating to LinkedIn MyNetwork (Target: {max_requests} micro-batch connection requests)...")
         if not await PlaywrightResilience.safe_goto(self.page, "https://www.linkedin.com/mynetwork/"):
             return []
 
         # Human scroll down to trigger lazy-loading of recommendation cards
         for _ in range(3):
             await PlaywrightResilience.human_scroll(self.page, random.randint(500, 800))
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(random.uniform(1.2, 2.5))
 
         # Rate Limit Guard: Check daily limit (20/day) and weekly limit (80/week)
         if check_daily_limit("connection_request", 20):
@@ -117,14 +117,20 @@ class LinkedInNetworkEngine:
                     print(f"  [SKIP] No Connect button found for {name}.")
                     continue
 
-                print(f"🤝 [Connection Request #{len(processed)+1}] Sending invite to {name} ({headline[:40]})...")
+                print(f"🤝 [Connection Request #{len(processed)+1}/{max_requests}] Target: {name} ({headline[:40]})...")
+
+                # Human Behavior: Smooth mouse hover over prospect card & realistic reading pause
+                box = await card.bounding_box()
+                if box:
+                    await PlaywrightResilience.smooth_mouse_move(self.page, 100, 100, int(box["x"] + box["width"]/2), int(box["y"] + box["height"]/2))
+                    await asyncio.sleep(random.uniform(2.5, 5.0))
 
                 if self.preproduction:
                     print(f"[{len(processed)+1:02d}] 🧪 [PREPROD] Would click Connect for {name}")
                     processed.append({"name": name, "headline": headline, "status": "simulated"})
                 else:
                     await connect_btn.scroll_into_view_if_needed()
-                    await asyncio.sleep(random.uniform(0.8, 1.5))
+                    await asyncio.sleep(random.uniform(1.2, 2.8))
                     await connect_btn.click(force=True)
                     await asyncio.sleep(random.uniform(2.0, 3.5))
 
@@ -152,6 +158,12 @@ class LinkedInNetworkEngine:
                     mark_engaged("connection_request", name)
                     print(f"[{len(processed)+1:02d}] ✅ Connection request sent to {name}")
                     processed.append({"name": name, "headline": headline, "status": "sent"})
+
+                # Human Inter-Request Pause: Wait 8 to 18 seconds between invites
+                if len(processed) < max_requests:
+                    inter_delay = random.uniform(8.0, 18.0)
+                    print(f"  ☕ [Human Behavior] Pausing {inter_delay:.1f}s before next prospect...")
+                    await asyncio.sleep(inter_delay)
 
             except Exception as e:
                 print(f"⚠️ Connection card #{idx+1} error: {e}")

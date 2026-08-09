@@ -105,7 +105,7 @@ class LinkedInAutoAgent:
 
         if mode in ["network", "all"]:
             net = LinkedInNetworkEngine(page=page, preproduction=preproduction)
-            await net.process_connection_requests(max_requests=15)
+            await net.process_connection_requests(max_requests=3)
 
         # Check today's post folder and publish due 4-post slots
         await self._ensure_todays_posts_and_publish_due_slots(page=page, preproduction=preproduction)
@@ -218,11 +218,13 @@ class LinkedInAutoAgent:
         debug_port = find_free_port(19001)
 
         lock_file = publisher.user_data_dir / "SingletonLock"
-        if lock_file.exists():
-            try:
-                lock_file.unlink()
-            except Exception:
-                pass
+        for _ in range(5):
+            if lock_file.exists():
+                try:
+                    lock_file.unlink()
+                    break
+                except Exception:
+                    await asyncio.sleep(0.5)
 
         async with async_playwright() as p:
             context = await p.chromium.launch_persistent_context(
