@@ -217,12 +217,14 @@ class LinkedInPublisher:
             # 1. Click 'Start a post' trigger button
             print(" ├── Triggering LinkedIn post editor...")
             start_post_selectors = [
+                "text=Start a post",
                 "button:has-text('Start a post')",
                 "span:has-text('Start a post')",
+                ".share-box-feed-entry__top-bar button",
+                ".share-box-feed-entry__wrapper button",
+                ".share-box-feed-entry__wrapper",
                 "button.share-mb-launcher",
-                "button[data-view-name='share-box-trigger']",
-                "div.share-box-feed-entry__wrapper button",
-                "div.share-box-feed-entry__wrapper"
+                "button[data-view-name='share-box-trigger']"
             ]
             clicked = False
             for sel in start_post_selectors:
@@ -235,6 +237,16 @@ class LinkedInPublisher:
                         break
                 except Exception:
                     continue
+
+            if not clicked:
+                try:
+                    loc = page.get_by_text("Start a post")
+                    if await loc.count() > 0:
+                        await loc.first.click(force=True)
+                        clicked = True
+                        print(" └── Clicked 'Start a post' using get_by_text fallback")
+                except Exception as loc_e:
+                    print(f" ⚠️ Locator fallback notice: {loc_e}")
 
             if not clicked:
                 print(" ⚠️ Could not locate 'Start a post' button via standard selectors.")
