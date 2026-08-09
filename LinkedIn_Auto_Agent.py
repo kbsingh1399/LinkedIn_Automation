@@ -108,13 +108,77 @@ class LinkedInAutoAgent:
             await net.process_connection_requests(max_requests=15)
 
         # Check today's post folder and publish due 4-post slots
-        await self._ensure_todays_posts_and_publish_due_slots(preproduction=preproduction)
+        await self._ensure_todays_posts_and_publish_due_slots(page=page, preproduction=preproduction)
 
         # Occasional page refresh & mouse scroll jitter
         await PlaywrightResilience.occasional_page_refresh(page, 0.22)
         await self._simulate_distraction(context)
 
         print(f"✅ Cycle #{cycle_num} completed cleanly.")
+
+    async def _ensure_todays_posts_and_publish_due_slots(self, page=None, preproduction: bool = True):
+        """
+        Automated Post Queue Processing:
+        1. Finds all curated post option folders (Posts/YYYY-MM-DD/.../Option_XX).
+        2. If fewer than 4 options available, auto-triggers live_persistent_curator.py.
+        3. Checks current hour against scheduled slots (9 AM, 1 PM, 5 PM, 9 PM).
+        4. Publishes the NEXT UN-PUBLISHED Option folder in line to guarantee 100% of all curated picks get posted!
+        """
+        from pathlib import Path
+        from engagement_tracker import already_engaged, mark_engaged
+
+        now = datetime.datetime.now()
+        today_str = now.strftime("%Y-%m-%d")
+        posts_base = Path("Posts")
+
+        # Gather all option directories across date folders
+        all_option_dirs = sorted(list(posts_base.glob("**/Option_*")), key=lambda p: str(p))
+        
+        # Check if today's options exist, otherwise auto-curate
+        today_options = [p for p in all_option_dirs if today_str in str(p)]
+        if len(today_options) < 4:
+            print(f"📁 Today's post options ({today_str}) missing or incomplete ({len(today_options)}/4). Triggering Auto-Curator...")
+            try:
+                from live_persistent_curator import curate_with_persistent_chrome
+                await curate_with_persistent_chrome(topics=settings.topics, total_count=4, headless=False)
+                all_option_dirs = sorted(list(posts_base.glob("**/Option_*")), key=lambda p: str(p))
+            except Exception as cur_err:
+                print(f"⚠️ Auto-curator trigger notice: {cur_err}")
+
+        # Filter out options that have already been published
+        unpublished_options = [opt for opt in all_option_dirs if not already_engaged("published_option", str(opt.resolve()))]
+
+        if not unpublished_options:
+            print("⚠️ No unpublished post options remaining in queue.")
+            return
+
+        # Time slot hours: 9 AM (Slot 1), 1 PM (Slot 2), 5 PM (Slot 3), 9 PM (Slot 4)
+        slots = [
+            {"slot_num": 1, "hour": 9},
+            {"slot_num": 2, "hour": 13},
+            {"slot_num": 3, "hour": 17},
+            {"slot_num": 4, "hour": 21},
+        ]
+
+        for slot in slots:
+            slot_key = f"published_slot_{today_str}_{slot['slot_num']}"
+            if already_engaged("publisher_slot", slot_key):
+                continue
+
+            if now.hour >= slot["hour"] and unpublished_options:
+                target_option = unpublished_options.pop(0)
+                print(f"📅 [Scheduled Publisher] Slot #{slot['slot_num']} ({slot['hour']}:00) due!")
+                print(f" └── Publishing next option in queue: {target_option.name} ({target_option.parent.name})")
+
+                try:
+                    publisher = LinkedInPublisher(headless=False)
+                    res = await publisher.publish_post_option(target_option, dry_run=preproduction)
+                    if res:
+                        mark_engaged("publisher_slot", slot_key)
+                        mark_engaged("published_option", str(target_option.resolve()))
+                        print(f"✅ Slot #{slot['slot_num']} successfully published post: {target_option.name}!")
+                except Exception as pub_err:
+                    print(f"⚠️ Failed to publish Slot #{slot['slot_num']}: {pub_err}")
 
     async def run_cycle(self, mode: str, max_feed: int, headless: bool, preproduction: bool, cycle_num: int = 1):
         publisher = LinkedInPublisher(headless=headless)
