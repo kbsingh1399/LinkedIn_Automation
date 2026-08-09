@@ -134,19 +134,19 @@ class LinkedInAutoAgent:
         # Gather all option directories across date folders
         all_option_dirs = sorted(list(posts_base.glob("**/Option_*")), key=lambda p: str(p))
         
-        # Check if today's options exist, otherwise auto-curate
-        today_options = [p for p in all_option_dirs if today_str in str(p)]
-        if len(today_options) < 4:
-            print(f"📁 Today's post options ({today_str}) missing or incomplete ({len(today_options)}/4). Triggering Auto-Curator...")
+        # Filter out options that have already been published
+        unpublished_options = [opt for opt in all_option_dirs if not already_engaged("published_option", str(opt.resolve()))]
+
+        # If remaining unpublished options in queue drop below 4, auto-trigger curator for fresh content
+        if len(unpublished_options) < 4:
+            print(f"📁 Unpublished post options in queue low ({len(unpublished_options)} remaining). Auto-triggering Curator for fresh content...")
             try:
                 from live_persistent_curator import curate_with_persistent_chrome
                 await curate_with_persistent_chrome(topics=settings.topics, total_count=4, headless=False)
                 all_option_dirs = sorted(list(posts_base.glob("**/Option_*")), key=lambda p: str(p))
+                unpublished_options = [opt for opt in all_option_dirs if not already_engaged("published_option", str(opt.resolve()))]
             except Exception as cur_err:
                 print(f"⚠️ Auto-curator trigger notice: {cur_err}")
-
-        # Filter out options that have already been published
-        unpublished_options = [opt for opt in all_option_dirs if not already_engaged("published_option", str(opt.resolve()))]
 
         if not unpublished_options:
             print("⚠️ No unpublished post options remaining in queue.")
