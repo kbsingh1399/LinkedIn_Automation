@@ -262,12 +262,18 @@ class LinkedInAutoAgent:
         import subprocess
         debug_port = find_free_port(19001)
 
-        # Kill any orphaned Chrome processes holding the profile lock, then clean lock files
-        subprocess.run(
-            ["taskkill", "/F", "/IM", "chrome.exe", "/T"],
-            capture_output=True
+        # Surgically kill ONLY the Chrome instance using our specific user_data_dir.
+        # This leaves all other Chrome browser windows on the machine completely untouched.
+        user_data_marker = str(publisher.user_data_dir).replace("\\", "\\\\")
+        ps_kill_script = (
+            f"Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+            f"Where-Object {{ $_.CommandLine -like '*{user_data_marker}*' }} | "
+            f"ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"
         )
+        subprocess.run(["powershell", "-Command", ps_kill_script], capture_output=True)
         await asyncio.sleep(1.5)
+
+        # Clean stale profile lock files left by the killed process
         for lock_name in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
             sf = publisher.user_data_dir / lock_name
             if sf.exists():
