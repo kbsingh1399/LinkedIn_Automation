@@ -263,10 +263,23 @@ class LinkedInPublisher:
                     await page.wait_for_timeout(4000)
 
                     # Click 'Next' or 'Done' on media editor modal if presented
-                    next_media_btn = await page.query_selector("button:has-text('Next'), button:has-text('Done')")
-                    if next_media_btn:
-                        await next_media_btn.click(force=True)
-                        await page.wait_for_timeout(2000)
+                    next_media_selectors = [
+                        "button:has-text('Next')",
+                        "button:has-text('Done')",
+                        "button:has-text('Save')",
+                        "button.share-box-footer__primary-btn",
+                        "div.share-box-footer button.artdeco-button--primary"
+                    ]
+                    for n_sel in next_media_selectors:
+                        try:
+                            n_btn = await page.wait_for_selector(n_sel, timeout=3000)
+                            if n_btn and await n_btn.is_visible():
+                                await n_btn.click(force=True)
+                                print(f" └── Clicked media modal next using selector: {n_sel}")
+                                await page.wait_for_timeout(2000)
+                                break
+                        except Exception:
+                            continue
 
             # 3. Insert Post Copy
             print(" ├── Entering post content...")
@@ -279,7 +292,7 @@ class LinkedInPublisher:
             for sel in editor_selectors:
                 try:
                     editor = await page.wait_for_selector(sel, timeout=4000)
-                    if editor:
+                    if editor and await editor.is_visible():
                         break
                 except Exception:
                     continue
@@ -291,12 +304,23 @@ class LinkedInPublisher:
 
             # 4. Click Post button
             print(" ├── Clicking 'Post' button...")
-            post_submit_btn = await page.query_selector("button.share-actions__primary-action, button:has-text('Post')")
-            if post_submit_btn:
-                await post_submit_btn.click(force=True)
-                await page.wait_for_timeout(6000)
-                print("🎉 Successfully published post to LinkedIn!")
-                return True
+            post_submit_selectors = [
+                "button.share-actions__primary-action",
+                "button:has-text('Post')",
+                "div.share-box-footer button:has-text('Post')",
+                "button.artdeco-button--primary:has-text('Post')"
+            ]
+            for p_sel in post_submit_selectors:
+                try:
+                    p_btn = await page.wait_for_selector(p_sel, timeout=3000)
+                    if p_btn:
+                        await p_btn.click(force=True)
+                        print(f" └── Clicked 'Post' using selector: {p_sel}")
+                        await page.wait_for_timeout(6000)
+                        print("🎉 Successfully published post to LinkedIn!")
+                        return True
+                except Exception:
+                    continue
 
         except Exception as e:
             print(f"⚠️ Error while publishing post on page: {e}")
