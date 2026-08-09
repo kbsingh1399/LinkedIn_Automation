@@ -133,7 +133,7 @@ class LinkedInPublisher:
 
         return "feed" in page.url.lower()
 
-    async def publish_post_option(self, option_dir: Path, dry_run: bool = False) -> bool:
+    async def publish_post_option(self, option_dir: Path, page: Optional[Any] = None, dry_run: bool = False) -> bool:
         """Publishes a LinkedIn post option (text + media) directly to LinkedIn."""
         post_txt_file = option_dir / "linkedin_post.txt"
         media_dir = option_dir / "media"
@@ -164,7 +164,10 @@ class LinkedInPublisher:
             print("🧪 [DRY RUN] Skipping actual LinkedIn publishing.")
             return True
 
-        # Safely clear stale locks for our isolated profile without affecting other Chrome processes
+        if page:
+            return await self._publish_on_page(page, post_text, media_file)
+
+        # Safely clear stale locks for our isolated profile
         lock_file = self.user_data_dir / "SingletonLock"
         if lock_file.exists():
             try:
@@ -192,89 +195,99 @@ class LinkedInPublisher:
                     "--disable-renderer-backgrounding"
                 ]
             )
-            page = context.pages[0] if context.pages else await context.new_page()
+            target_page = context.pages[0] if context.pages else await context.new_page()
 
-            logged_in = await self.ensure_logged_in(page)
+            logged_in = await self.ensure_logged_in(target_page)
             if not logged_in:
                 print("❌ Failed to verify LinkedIn login. Aborting publish.")
                 await context.close()
                 return False
 
-            # Navigate to feed
-            await page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded")
-            await page.wait_for_timeout(4000)
+            res = await self._publish_on_page(target_page, post_text, media_file)
+            await context.close()
+            return res
 
-            try:
-                # 1. Click 'Start a post' trigger button
-                print(" ├── Triggering LinkedIn post editor...")
-                start_post_selectors = [
-                    "button.share-mb-launcher",
-                    "button:has-text('Start a post')",
-                    "button[data-view-name='share-box-trigger']",
-                    "div.share-box-feed-entry__wrapper button"
-                ]
-                start_btn = None
-                for sel in start_post_selectors:
-                    try:
-                        start_btn = await page.wait_for_selector(sel, timeout=5000)
-                        if start_btn:
-                            break
-                    except:
-                        continue
+    async def _publish_on_page(self, page, post_text: str, media_file: Optional[Path]) -> bool:
+        """Executes actual DOM actions on the LinkedIn feed page to create and submit a post."""
+        try:
+            if "feed" not in page.url.lower():
+                await page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded")
+                await page.wait_for_timeout(3000)
 
-                if start_btn:
-                    await start_btn.click()
-                    await page.wait_for_timeout(3000)
+            # 1. Click 'Start a post' trigger button
+            print(" ├── Triggering LinkedIn post editor...")
+            start_post_selectors = [
+                "button:has-text('Start a post')",
+                "span:has-text('Start a post')",
+                "button.share-mb-launcher",
+                "button[data-view-name='share-box-trigger']",
+                "div.share-box-feed-entry__wrapper button",
+                "div.share-box-feed-entry__wrapper"
+            ]
+            clicked = False
+            for sel in start_post_selectors:
+                try:
+                    el = await page.wait_for_selector(sel, timeout=3000)
+                    if el:
+                        await el.click(force=True)
+                        clicked = True
+                        print(f" └── Clicked 'Start a post' using selector: {sel}")
+                        break
+                except Exception:
+                    continue
 
-                # 2. Upload media file if present
-                if media_file:
-                    print(f" ├── Attaching media file: {media_file.name} ...")
-                    file_input = await page.query_selector("input[type='file']")
-                    if file_input:
-                        await file_input.set_input_files(str(media_file.resolve()))
+            if not clicked:
+                print(" ⚠️ Could not locate 'Start a post' button via standard selectors.")
+                return False
+
+            await page.wait_for_timeout(3000)
+
+            # 2. Upload media file if present
+            if media_file:
+                print(f" ├── Attaching media file: {media_file.name} ...")
+                file_input = await page.query_selector("input[type='file']")
+                if file_input:
+                    await file_input.set_input_files(str(media_file.resolve()))
                     await page.wait_for_timeout(4000)
 
                     # Click 'Next' or 'Done' on media editor modal if presented
                     next_media_btn = await page.query_selector("button:has-text('Next'), button:has-text('Done')")
                     if next_media_btn:
-                        await next_media_btn.click()
+                        await next_media_btn.click(force=True)
                         await page.wait_for_timeout(2000)
 
-                # 3. Insert Post Copy
-                print(" ├── Entering post content...")
-                editor_selectors = [
-                    "div.ql-editor",
-                    "div[contenteditable='true']",
-                    "div[role='textbox']"
-                ]
-                editor = None
-                for sel in editor_selectors:
-                    try:
-                        editor = await page.wait_for_selector(sel, timeout=5000)
-                        if editor:
-                            break
-                    except:
-                        continue
+            # 3. Insert Post Copy
+            print(" ├── Entering post content...")
+            editor_selectors = [
+                "div.ql-editor",
+                "div[contenteditable='true']",
+                "div[role='textbox']"
+            ]
+            editor = None
+            for sel in editor_selectors:
+                try:
+                    editor = await page.wait_for_selector(sel, timeout=4000)
+                    if editor:
+                        break
+                except Exception:
+                    continue
 
-                if editor:
-                    await editor.focus()
-                    await editor.fill(post_text)
-                    await page.wait_for_timeout(2000)
+            if editor:
+                await editor.focus()
+                await editor.fill(post_text)
+                await page.wait_for_timeout(2000)
 
-                # 4. Click Post button
-                print(" ├── Clicking 'Post' button...")
-                post_submit_btn = await page.query_selector("button.share-actions__primary-action, button:has-text('Post')")
-                if post_submit_btn:
-                    await post_submit_btn.click()
-                    await page.wait_for_timeout(6000)
-                    print("🎉 Successfully published post to LinkedIn!")
-                    await context.close()
-                    return True
+            # 4. Click Post button
+            print(" ├── Clicking 'Post' button...")
+            post_submit_btn = await page.query_selector("button.share-actions__primary-action, button:has-text('Post')")
+            if post_submit_btn:
+                await post_submit_btn.click(force=True)
+                await page.wait_for_timeout(6000)
+                print("🎉 Successfully published post to LinkedIn!")
+                return True
 
-            except Exception as e:
-                print(f"⚠️ Error while publishing post: {e}")
-            finally:
-                await context.close()
+        except Exception as e:
+            print(f"⚠️ Error while publishing post on page: {e}")
 
         return False
 
