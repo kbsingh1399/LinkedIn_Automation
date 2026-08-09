@@ -191,7 +191,7 @@ class LinkedInAutoAgent:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", default="all", choices=["feed", "notifications", "inbox", "all"])
+    parser.add_argument("--mode", default="all", choices=["feed", "notifications", "inbox", "network", "all"])
     parser.add_argument("--max-feed", type=int, default=3)
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--live", action="store_true")
