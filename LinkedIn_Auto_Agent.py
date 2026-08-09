@@ -37,7 +37,7 @@ class LinkedInAutoAgent:
         publisher = LinkedInPublisher(headless=headless)
 
         from config import find_free_port
-        debug_port = find_free_port(9222)
+        debug_port = find_free_port(19001)
         print(f"🔌 [CDP] Using dynamic debug port: {debug_port}")
 
         context = None

@@ -121,7 +121,7 @@ class LinkedInPublisher:
                 pass
 
         from config import find_free_port
-        pub_port = find_free_port(9223)
+        pub_port = find_free_port(19002)
         async with async_playwright() as p:
             context = await p.chromium.launch_persistent_context(
                 user_data_dir=str(self.user_data_dir),

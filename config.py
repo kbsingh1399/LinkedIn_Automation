@@ -34,7 +34,7 @@ class Settings(BaseModel):
 
 settings = Settings()
 
-def find_free_port(preferred_port: int = 9222, max_attempts: int = 50) -> int:
+def find_free_port(preferred_port: int = 19001, max_attempts: int = 50) -> int:
     """Check if preferred_port is free. If occupied, scan for the next available port dynamically."""
     import socket
     for p in range(preferred_port, preferred_port + max_attempts):
