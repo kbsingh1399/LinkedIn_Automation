@@ -145,6 +145,9 @@ class LinkedInAutoAgent:
                     net = LinkedInNetworkEngine(page=page, preproduction=preproduction)
                     await net.process_connection_requests(max_requests=15)
 
+                # Check today's post folder and publish due 4-post slots
+                await self._ensure_todays_posts_and_publish_due_slots(preproduction=preproduction)
+
                 # Occasional page refresh & mouse scroll jitter
                 await PlaywrightResilience.occasional_page_refresh(page, 0.22)
                 await self._simulate_distraction(context)
@@ -161,6 +164,65 @@ class LinkedInAutoAgent:
                     await context.close()
                 except Exception:
                     pass
+
+    async def _ensure_todays_posts_and_publish_due_slots(self, preproduction: bool = True):
+        """
+        Automated Daily Post Curation & Scheduling:
+        1. Checks if today's post folder (Posts/YYYY-MM-DD) exists.
+        2. If missing or < 4 options, auto-runs live_persistent_curator.py to curate today's 4 posts.
+        3. Checks current hour (9 AM, 1 PM, 5 PM, 9 PM) and publishes due slots using LinkedInPublisher.
+        """
+        import datetime
+        from pathlib import Path
+        from engagement_tracker import already_engaged, mark_engaged
+
+        now = datetime.datetime.now()
+        today_str = now.strftime("%Y-%m-%d")
+        today_dir = Path("Posts") / today_str
+
+        # 1. Check if today's post folder exists with options
+        existing_options = sorted(list(today_dir.glob("**/Option_*"))) if today_dir.exists() else []
+        if len(existing_options) < 4:
+            print(f"📁 Today's post folder ({today_dir}) missing or incomplete ({len(existing_options)}/4 options). Triggering Auto-Curator...")
+            try:
+                from live_persistent_curator import curate_with_persistent_chrome
+                from config import settings
+                await curate_with_persistent_chrome(topics=settings.topics, total_count=4, headless=False)
+                existing_options = sorted(list(today_dir.glob("**/Option_*"))) if today_dir.exists() else []
+            except Exception as cur_err:
+                print(f"⚠️ Auto-curator trigger notice: {cur_err}")
+
+        if not existing_options:
+            print(f"⚠️ No post options available for today ({today_str}). Skipping scheduled publishing.")
+            return
+
+        # 2. Check 4 Scheduled Time Slots (9 AM, 1 PM, 5 PM, 9 PM)
+        slots = [
+            {"slot_num": 1, "hour": 9, "opt_idx": 0},
+            {"slot_num": 2, "hour": 13, "opt_idx": 1},
+            {"slot_num": 3, "hour": 17, "opt_idx": 2},
+            {"slot_num": 4, "hour": 21, "opt_idx": 3},
+        ]
+
+        for slot in slots:
+            slot_key = f"published_slot_{today_str}_{slot['slot_num']}"
+            if already_engaged("publisher_slot", slot_key):
+                continue
+
+            if now.hour >= slot["hour"]:
+                opt_idx = slot["opt_idx"]
+                if opt_idx < len(existing_options):
+                    opt_dir = existing_options[opt_idx]
+                    print(f"📅 [Scheduled Publisher] Slot #{slot['slot_num']} ({slot['hour']}:00) due! Publishing from: {opt_dir.name}")
+                    try:
+                        from linkedin_publisher import LinkedInPublisher
+                        publisher = LinkedInPublisher(headless=False)
+                        res = await publisher.publish_post_option(opt_dir, dry_run=preproduction)
+                        if res:
+                            mark_engaged("publisher_slot", slot_key)
+                            print(f"✅ Slot #{slot['slot_num']} successfully published!")
+                    except Exception as pub_err:
+                        print(f"⚠️ Failed to publish Slot #{slot['slot_num']}: {pub_err}")
 
     async def run_forever(self, mode: str, max_feed: int, headless: bool, preproduction: bool, interval: int, max_cycles: int = 100):
         print(f"🚀 Starting continuous loop with humanized anti-bot randomness (base interval: {interval}s, max cycles: {max_cycles})")
