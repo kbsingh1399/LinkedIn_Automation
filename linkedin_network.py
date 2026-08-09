@@ -85,6 +85,10 @@ class LinkedInNetworkEngine:
                 name = (await name_el.inner_text()).strip() if name_el else f"Connection #{idx+1}"
                 name = name.splitlines()[0] if name else f"Connection #{idx+1}"
 
+                if PlaywrightResilience.is_company_name(name):
+                    print(f"  [SKIP] '{name}' appears to be a company/brand. Skipping connection request.")
+                    continue
+
                 headline_el = await card.query_selector("span.discover-person-card__occupation, div.artdeco-entity-lockup__subtitle, span[class*='occupation']")
                 headline = (await headline_el.inner_text()).strip() if headline_el else ""
 

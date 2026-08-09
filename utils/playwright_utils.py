@@ -14,6 +14,24 @@ logger = logging.getLogger(__name__)
 class PlaywrightResilience:
     """Centralized resilience + human behavior utilities."""
 
+    @staticmethod
+    def is_company_name(name: str) -> bool:
+        """Check if author or profile name belongs to a company/brand rather than an individual."""
+        import re
+        if not name:
+            return False
+        corporate_indicators = [
+            r'\b(inc|corp|ltd|llc|pvt|limited|gmbh|plc|co\.|company|group|solutions|technologies|consulting|services|enterprises|global|international)\b',
+            r'\b(tech|labs|digital|software|systems|networks|media|agency|capital|ventures|partners|associates|holdings|foundation)\b'
+        ]
+        name_lower = name.lower().strip()
+        for pattern in corporate_indicators:
+            if re.search(pattern, name_lower, re.IGNORECASE):
+                return True
+        if len(name_lower.split()) >= 4:
+            return True
+        return False
+
     SELECTORS = {
         "comment_box": [
             "div[contenteditable='true'][role='textbox']",
