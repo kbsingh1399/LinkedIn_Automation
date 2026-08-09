@@ -47,7 +47,12 @@ async def probe_dom(page, url: str, label: str):
     print(f"\n{'─'*60}")
     print(f"  DOM PROBE: {label}  →  {url}")
     print(f"{'─'*60}")
-    await safe_goto(page, url)
+    success = await safe_goto(page, url)
+    if not success:
+        print(f"  ❌ Aborting probe: navigation failed for {url}")
+        log(f"Session valid on {label}", FAIL, "Navigation failed")
+        return
+        
     await asyncio.sleep(4)
     await page.mouse.wheel(0, 1200)
     await asyncio.sleep(3)
@@ -75,38 +80,42 @@ async def probe_dom(page, url: str, label: str):
     ]
 
     found_any = False
-    for sel, name in stable_probes:
-        els = await page.query_selector_all(sel)
-        if els:
-            found_any = True
-            # Print first element's aria-label for context
-            aria = await els[0].get_attribute("aria-label") or ""
-            print(f"  ✅ {name}: {len(els)} found  [aria-label={aria!r}]")
+    try:
+        for sel, name in stable_probes:
+            els = await page.query_selector_all(sel)
+            if els:
+                found_any = True
+                # Print first element's aria-label for context
+                aria = await els[0].get_attribute("aria-label") or ""
+                print(f"  ✅ {name}: {len(els)} found  [aria-label={aria!r}]")
 
-    # Dump all unique button aria-labels
-    btns = await page.query_selector_all("button[aria-label]")
-    unique_labels = sorted(set([
-        (await b.get_attribute("aria-label") or "").strip()
-        for b in btns
-        if await b.get_attribute("aria-label")
-    ]))
-    print(f"\n  All {len(unique_labels)} button aria-labels on {label}:")
-    for lbl in unique_labels[:25]:
-        print(f"    - {lbl!r}")
+        # Dump all unique button aria-labels
+        btns = await page.query_selector_all("button[aria-label]")
+        unique_labels = sorted(set([
+            (await b.get_attribute("aria-label") or "").strip()
+            for b in btns
+            if await b.get_attribute("aria-label")
+        ]))
+        print(f"\n  All {len(unique_labels)} button aria-labels on {label}:")
+        for lbl in unique_labels[:25]:
+            print(f"    - {lbl!r}")
 
-    # Sample post text
-    text_found = False
-    spans = await page.query_selector_all("main span, main p, main div")
-    for sp in spans:
-        try:
-            txt = (await sp.inner_text()).strip()
-            if 40 < len(txt) < 300 and "Sign in" not in txt and "\n" not in txt[:60]:
-                tag = await sp.evaluate("el => el.tagName")
-                print(f"\n  Sample text [{tag}]: {txt[:120]!r}")
-                text_found = True
-                break
-        except Exception:
-            pass
+        # Sample post text
+        text_found = False
+        spans = await page.query_selector_all("main span, main p, main div")
+        for sp in spans:
+            try:
+                txt = (await sp.inner_text()).strip()
+                if 40 < len(txt) < 300 and "Sign in" not in txt and "\n" not in txt[:60]:
+                    tag = await sp.evaluate("el => el.tagName")
+                    print(f"\n  Sample text [{tag}]: {txt[:120]!r}")
+                    text_found = True
+                    break
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"  ⚠️ Error during DOM probing on {label}: {e}")
+        text_found = False
 
     log(
         f"DOM content loaded on {label}",
@@ -115,25 +124,46 @@ async def probe_dom(page, url: str, label: str):
     )
 
 
+async def check_cdp_available(port: int = 9222) -> bool:
+    import urllib.request
+    try:
+        req = urllib.request.urlopen(f"http://localhost:{port}/json/version", timeout=2)
+        return req.status == 200
+    except Exception:
+        return False
+
+
 async def run_acceptance():
+    cdp_available = await check_cdp_available(9222)
+    is_headless = "--headless" in sys.argv if not cdp_available else False
     print("=" * 60)
     print("  🛡️  ACCEPTANCE ORCHESTRATOR — FULL PIPELINE VERIFICATION")
     print("=" * 60)
-    print("  Mode: PREPRODUCTION (no real actions will be taken)")
+    if cdp_available:
+        print("  Mode: PREPRODUCTION (Connected to existing Chrome on http://localhost:9222 via CDP)")
+    else:
+        print(f"  Mode: PREPRODUCTION (headless={is_headless})")
     print("=" * 60)
 
-    publisher = LinkedInPublisher(headless=False)
+    publisher = LinkedInPublisher(headless=is_headless)
 
     async with async_playwright() as p:
-        context = await p.chromium.launch_persistent_context(
-            user_data_dir=str(publisher.user_data_dir),
-            channel="chrome",
-            headless=False,
-            no_viewport=True,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            args=["--new-window", "--start-maximized", "--disable-blink-features=AutomationControlled", "--test-type"]
-        )
-        page = context.pages[0] if context.pages else await context.new_page()
+        if cdp_available:
+            print("🔗 Connecting directly to user's debug Chrome instance at http://localhost:9222 ...")
+            browser = await p.chromium.connect_over_cdp("http://localhost:9222")
+            context = browser.contexts[0] if browser.contexts else await browser.new_context()
+            page = context.pages[0] if context.pages else await context.new_page()
+            await page.bring_to_front()
+        else:
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir=str(publisher.user_data_dir),
+                channel="chrome",
+                headless=is_headless,
+                no_viewport=True,
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                args=["--new-window", "--start-maximized", "--disable-blink-features=AutomationControlled", "--test-type"]
+            )
+            page = context.pages[0] if context.pages else await context.new_page()
 
         # Force OS-level maximize via CDP
         try:

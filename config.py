@@ -31,3 +31,18 @@ class Settings(BaseModel):
     max_scrolls: int = 5
 
 settings = Settings()
+
+def find_free_port(preferred_port: int = 9222, max_attempts: int = 50) -> int:
+    """Check if preferred_port is free. If occupied, scan for the next available port dynamically."""
+    import socket
+    for p in range(preferred_port, preferred_port + max_attempts):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", p))
+                return p
+            except OSError:
+                continue
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+

@@ -12,6 +12,7 @@ from linkedin_feed import LinkedInFeedEngine
 from linkedin_notifications import LinkedInNotificationsEngine
 from linkedin_inbox import LinkedInInboxEngine
 from utils.playwright_utils import PlaywrightResilience
+from engagement_tracker import clear_old_records
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -35,6 +36,10 @@ class LinkedInAutoAgent:
 
         publisher = LinkedInPublisher(headless=headless)
 
+        from config import find_free_port
+        debug_port = find_free_port(9222)
+        print(f"🔌 [CDP] Using dynamic debug port: {debug_port}")
+
         async with async_playwright() as p:
             context = await p.chromium.launch_persistent_context(
                 user_data_dir=str(publisher.user_data_dir),
@@ -46,6 +51,11 @@ class LinkedInAutoAgent:
                     "--disable-blink-features=AutomationControlled",
                     "--disable-infobars",
                     "--test-type",
+                    f"--remote-debugging-port={debug_port}",
+                    "--remote-debugging-address=127.0.0.1",
+                    "--disable-background-timer-throttling",
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-renderer-backgrounding",
                 ],
             )
             page = context.pages[0] if context.pages else await context.new_page()
@@ -56,16 +66,57 @@ class LinkedInAutoAgent:
                 await context.close()
                 return
 
+            # P0-2: Purge stale engagement records to keep DB lean
+            deleted = clear_old_records()
+            if deleted:
+                print(f"🗑️ [DB Cleanup] Purged {deleted} stale engagement records.")
+
+            # Security Checkpoint Gate: Pause execution if CAPTCHA or verification challenge appears
+            if await PlaywrightResilience.verify_security_checkpoint(page):
+                print("🚨 Security checkpoint gate triggered. Pausing cycle to protect account.")
+                await context.close()
+                return
+
+            # Overlay Dismissal Gate: Clear popups or cookie banners before proceeding
+            await PlaywrightResilience.dismiss_blocking_overlays(page)
+
+            # Auto-close any unwanted secondary tabs opened by external links
+            for p in context.pages[1:]:
+                if not p.is_closed():
+                    try:
+                        print(f"🧹 [Tab Safety] Closing unwanted auxiliary tab: {p.url}")
+                        await p.close()
+                    except Exception:
+                        pass
+            await page.bring_to_front()
+
             # Occasional viewport resize
             await PlaywrightResilience.random_viewport_resize(page, context)
 
             if mode in ["feed", "all"]:
-                # Randomize post engagement target slightly per cycle to avoid fixed pattern detection
-                cycle_max_feed = max(1, int(random.gauss(max_feed, 1.8)))
+                # Jitter ±15% of max_feed per cycle for anti-bot unpredictability.
+                std = max(0.5, max_feed * 0.15)
+                cycle_max_feed = max(max_feed, int(round(random.gauss(max_feed, std))))
                 print(f"📊 [Anti-Bot Stealth] Target for Cycle #{cycle_num}: {cycle_max_feed} feed posts (base setting: {max_feed})")
-                
                 feed = LinkedInFeedEngine(page=page, preproduction=preproduction)
                 await feed.process_feed_posts(cycle_max_feed)
+
+            # Close any unwanted tabs that opened during feed processing
+            for p in context.pages[1:]:
+                if not p.is_closed():
+                    try:
+                        print(f"🧹 [Tab Safety] Closing unwanted auxiliary tab: {p.url}")
+                        await p.close()
+                    except Exception:
+                        pass
+            await page.bring_to_front()
+
+            # P1-2: Mid-cycle security checkpoint gate
+            await PlaywrightResilience.dismiss_blocking_overlays(page)
+            if await PlaywrightResilience.verify_security_checkpoint(page):
+                print("🚨 [Mid-Cycle] Security checkpoint detected after Feed. Halting.")
+                await context.close()
+                return
 
             # Random reading pause between modules
             await asyncio.sleep(random.uniform(2.5, 6.0))
@@ -73,6 +124,13 @@ class LinkedInAutoAgent:
             if mode in ["notifications", "all"]:
                 notif = LinkedInNotificationsEngine(page=page, preproduction=preproduction)
                 await notif.process_top_20_notifications()
+
+            # P1-2: Mid-cycle security checkpoint gate
+            await PlaywrightResilience.dismiss_blocking_overlays(page)
+            if await PlaywrightResilience.verify_security_checkpoint(page):
+                print("🚨 [Mid-Cycle] Security checkpoint detected after Notifications. Halting.")
+                await context.close()
+                return
 
             # Random reading pause between modules
             await asyncio.sleep(random.uniform(2.0, 5.0))

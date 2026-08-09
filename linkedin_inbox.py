@@ -7,6 +7,7 @@ from typing import List, Dict, Any
 from playwright.async_api import Page
 from utils.playwright_utils import PlaywrightResilience
 from gemini_ai import GeminiAIClient
+from engagement_tracker import already_engaged, mark_engaged
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -20,21 +21,23 @@ class LinkedInInboxEngine:
     async def extract_full_chat_history(self, partner_name: str) -> str:
         try:
             history_lines = await self.page.evaluate(f'''() => {{
-                const items = Array.from(document.querySelectorAll("li.msg-s-message-list__item, div.msg-s-message-group"));
+                const items = Array.from(document.querySelectorAll("ul.msg-s-message-list-content li, li.msg-s-message-list__event, li.msg-s-message-list__item, li.msg-s-message-list-item, div.msg-s-message-group, div.msg-s-event-listitem"));
                 const result = [];
                 let currentSender = "{partner_name}";
                 items.forEach(item => {{
-                    const nameEl = item.querySelector("span.msg-s-message-group__name, span.msg-s-message-group__profile-info");
+                    const nameEl = item.querySelector("span.msg-s-message-group__name, span.msg-s-message-group__profile-info, span.msg-s-message-group__meta, span.msg-s-message-list__meta");
                     if (nameEl && nameEl.innerText.trim()) {{
-                        currentSender = nameEl.innerText.trim();
+                        currentSender = nameEl.innerText.trim().split('\\n')[0];
                     }} else if (item.innerHTML.includes('msg-s-message-group__profile-info--me') || item.innerHTML.includes('msg-s-message-group--me') || item.classList.contains('msg-s-message-group--me')) {{
                         currentSender = "Me";
                     }}
                     
-                    const textEls = Array.from(item.querySelectorAll("p.msg-s-event-listitem__body, div.msg-s-event-listitem__message-bubble"));
+                    const textEls = Array.from(item.querySelectorAll("p.msg-s-event-listitem__body, div.msg-s-event-listitem__message-bubble, div.msg-s-message-group__message-bubble"));
+                    let seenTexts = new Set();
                     textEls.forEach(el => {{
                         const txt = el.innerText.trim();
-                        if (txt) {{
+                        if (txt && !seenTexts.has(txt)) {{
+                            seenTexts.add(txt);
                             result.push(`${{currentSender}}: ${{txt}}`);
                         }}
                     }});
@@ -53,19 +56,22 @@ class LinkedInInboxEngine:
         print(f"\n💬 Navigating to LinkedIn Messaging...")
         if not await PlaywrightResilience.safe_goto(self.page, "https://www.linkedin.com/messaging/"):
             return []
-        # Scroll to top so the first conversation is visible
+        # Scroll to top then human-scroll to ensure conversation list is visible
         await self.page.evaluate("window.scrollTo(0, 0)")
+        await asyncio.sleep(0.5)
+        await PlaywrightResilience.human_scroll(self.page, random.randint(300, 500))
         # Wait for messaging list DOM to populate
         await asyncio.sleep(3.0)
 
         # Robust conversation list selectors + thread view fallback
         conv_selectors = [
+            "div.msg-conversations-container__convo-item-link",
+            "div.msg-conversation-listitem__link",
             "li.msg-conversation-card",
             "li.msg-conversation-listitem",
             "div.msg-conversation-card",
             "a.msg-conversation-listitem__link",
             "a[href*='/messaging/thread/']",
-            "div.msg-conversation-listitem__link",
             "div.msg-selectable-entity"
         ]
         
@@ -105,6 +111,11 @@ class LinkedInInboxEngine:
                     break
 
                 if card is not None:
+                    from engagement_tracker import check_daily_limit
+                    if check_daily_limit("inbox_reply", 25):
+                        print("🛑 [Rate Limit] Reached 25 inbox replies today. Skipping inbox module.")
+                        break
+
                     card_text = (await card.inner_text()).lower()
                     if "sponsored" in card_text:
                         print(f"⏩ [Inbox #{idx}] Skipping Sponsored / Ad thread.")
@@ -114,8 +125,19 @@ class LinkedInInboxEngine:
                     partner = (await name_el.inner_text()).strip() if name_el else f"Connection #{idx}"
                     partner = partner.splitlines()[0] if partner else f"Connection #{idx}"
                     
+                    # Quick check: if the snippet says "You:", we sent the last message.
+                    last_line = card_text.splitlines()[-1].strip() if card_text.splitlines() else ""
+                    if "\\nyou:" in card_text or last_line.startswith("you:") or "you: " in last_line:
+                        print(f"⏩ [Inbox #{idx}] Last message to {partner} was sent by us ('You:'). Skipping.")
+                        continue
+                        
                     await card.click()
                     await asyncio.sleep(random.uniform(1.8, 3.0))
+
+                    # Dedup: skip if already replied to this partner within 1 day
+                    if already_engaged("inbox_reply", partner):
+                        print(f"  [SKIP] Already replied to {partner} within 24h. Skipping.")
+                        continue
                 else:
                     partner = "Current Thread"
 
@@ -124,13 +146,29 @@ class LinkedInInboxEngine:
                     "div.msg-form__contenteditable[contenteditable='true'], "
                     "div[role='textbox'][aria-label*='message']"
                 )
-                if not editor and card is not None:
-                    print(f"⏩ [Inbox #{idx}] No active message editor for {partner}. Skipping.")
+                
+                # Open Thread Verification Gate: Check for locked / out-of-network / disabled messaging banners
+                locked_banner = await self.page.query_selector(
+                    "div[class*='msg-thread--locked'], "
+                    "p:has-text('You can no longer message this member'), "
+                    "span:has-text('InMail'), "
+                    "div:has-text('Messaging disabled')"
+                )
+                if (not editor or locked_banner) and card is not None:
+                    await self.page.screenshot(path=f"debug_locked_thread_{idx}.png")
+                    print(f"⏩ [Inbox #{idx}] Closed or locked DM thread with {partner}. Skipping (not marking as engaged).")                    
                     continue
 
                 # Extract complete history
                 history = await self.extract_full_chat_history(partner)
                 
+                history_lines = [line for line in history.split('\n') if line.strip()]
+                my_names = ["me:", "karanbir", "karanbir singh:"]
+                last_msg_lower = history_lines[-1].lower() if history_lines else ""
+                if any(last_msg_lower.startswith(n) for n in my_names):
+                    print(f"⏩ [Inbox #{idx}] Last message in thread with {partner} was sent by us. Waiting for their reply. Skipping.")
+                    continue
+
                 # Step 7.2 Verification: Take screenshot of active chat extracted
                 screenshot_path = f"temp_inbox_{idx}_{int(time.time())}.png"
                 await self.page.screenshot(path=screenshot_path)
@@ -156,7 +194,8 @@ class LinkedInInboxEngine:
 
                     editor = await self.page.query_selector(
                         "div.msg-form__contenteditable[contenteditable='true'], "
-                        "div[role='textbox'][aria-label*='message']"
+                        "div[aria-label*='Write a message' i], "
+                        "div[role='textbox'][aria-label*='message' i]"
                     )
                     if editor:
                         await PlaywrightResilience.human_type_with_mistakes(self.page, editor, ai_reply)
@@ -167,17 +206,30 @@ class LinkedInInboxEngine:
                         await self.page.screenshot(path="debug_linkedin_inbox_typed.png")
 
                         send_btn = await self.page.query_selector(
+                            "button.msg-form__send-button, "
                             "button[aria-label='Send'], "
-                            "button.msg-form__send-button"
+                            "button[type='submit'][class*='msg-form']"
                         )
                         if send_btn:
-                            await send_btn.click()
-                            await asyncio.sleep(random.uniform(3.5, 6.0))
+                            is_vis = await send_btn.is_visible()
+                            is_dis = await send_btn.get_attribute("disabled")
+                            btn_text = (await send_btn.inner_text()).strip()[:20]
+                            aria = await send_btn.get_attribute("aria-label") or ""
+                            print(f"  [DOM] Send btn: text={btn_text!r} aria={aria!r} visible={is_vis} disabled={is_dis}")
+                            if is_vis and is_dis is None:
+                                try:
+                                    await send_btn.click(force=True, timeout=4000)
+                                except Exception:
+                                    await send_btn.evaluate("b => b.click()")
+                                await asyncio.sleep(random.uniform(3.5, 6.0))
 
-                            # Step 7.3 Verification: Screenshot message sent in thread history
-                            await self.page.screenshot(path="step7_3_reply_sent.png")
-                            print(f"[{len(processed)+1:02d}] ✅ Reply sent to {partner}")
-                            processed.append({"partner_name": partner, "reply": ai_reply})
+                                # Step 7.3 Verification: Screenshot message sent in thread history
+                                await self.page.screenshot(path="step7_3_reply_sent.png")
+                                print(f"[{len(processed)+1:02d}] ✅ Reply sent to {partner}")
+                                processed.append({"partner_name": partner, "reply": ai_reply})
+                                mark_engaged("inbox_reply", partner)
+                            else:
+                                print(f"⚠️ Send btn not ready (visible={is_vis}, disabled={is_dis}) — skipping")
 
             except Exception as e:
                 print(f"⚠️ Inbox #{idx} error: {e}")

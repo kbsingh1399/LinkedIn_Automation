@@ -6,11 +6,24 @@
 x_user_data/
 linkedin_user_data/
 user_data/
+chrome_profile/
 
-# Python Caches
+# Python Caches & DBs
 __pycache__/
 *.pyc
 .pytest_cache/
+*.db
 
-# Posts Dump
+# Screenshots & Temporary Media
+*.png
+*.jpg
+temp_*
+step*.png
+debug_*.png
+dbg_*.png
+audit_*.png
+dom_analysis_*.png
+
+# Posts Dump & Logs
 Posts/
+*.log

@@ -1,10 +1,12 @@
 import asyncio
 import random
 import sys
+import re
 from typing import List, Dict, Any
 from playwright.async_api import Page
 from utils.playwright_utils import PlaywrightResilience
 from gemini_ai import GeminiAIClient
+from engagement_tracker import already_engaged, mark_engaged
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -28,6 +30,8 @@ class LinkedInNotificationsEngine:
         # Iterate in priority order; stop as soon as we get real element nodes.
         card_selectors = [
             "article.nt-card",
+            "div[class*='nt-card__container']",
+            "div[class*='nt-card']",
             "div.notification-item",
             "li.nt-card",
             "div[data-urn]",
@@ -37,9 +41,9 @@ class LinkedInNotificationsEngine:
             "main article",
         ]
 
-        # Scroll down to load more notification cards if available
+        # Human scroll to trigger lazy-loading of notification cards
         for _ in range(3):
-            await self.page.mouse.wheel(0, 800)
+            await PlaywrightResilience.human_scroll(self.page, random.randint(600, 900))
             await asyncio.sleep(1.0)
 
         best_selector = None
@@ -58,13 +62,20 @@ class LinkedInNotificationsEngine:
 
         processed = []
         actionable_keywords = ["replied", "commented", "mentioned", "tagged", "response to your"]
-        skip_keywords = ["view jobs", "opportunities in", "viewed your profile", "birthday", "work anniversary", "hiring for"]
+        skip_keywords = ["view jobs", "opportunities in", "viewed your profile", "say happy birthday", "congratulate", "hiring for"]
 
         # Get initial count for up to 50 notification cards
         card_count = len(cards) if cards else 0
         max_idx = min(card_count, 50)
         
+        from engagement_tracker import check_daily_limit
+        if check_daily_limit("notification_reply", 20):
+            print("🛑 [Rate Limit] Reached 20 notification replies today. Skipping notification module.")
+            return []
+
         for idx in range(max_idx):
+            if check_daily_limit("notification_reply", 20):
+                break
             try:
                 # Re-query elements if we have a best_selector, since navigation destroys old handles
                 if best_selector:
@@ -75,7 +86,9 @@ class LinkedInNotificationsEngine:
                 else:
                     card = cards[idx]
 
-                text = (await card.inner_text()).strip()
+                # Extract notification headline text (e.g. "Manish Kumar, PMP mentioned you in a comment")
+                headline_el = await card.query_selector("a.nt-card__headline, [class*='nt-card__headline']")
+                text = (await headline_el.inner_text()).strip() if headline_el else (await card.inner_text()).strip()
                 if not text:
                     continue
 
@@ -85,11 +98,16 @@ class LinkedInNotificationsEngine:
                 if not is_actionable:
                     continue
 
-                print(f"🔔 [Actionable Notification #{idx+1}] {text[:80].replace(chr(10), ' ')}...")
-                ai_reply = await self.ai.generate_notification_reply(text[:200], page=self.page)
+                # Dedup: skip if already replied to this notification within 3 days
+                if already_engaged("notification_reply", text[:200]):
+                    print(f"  [SKIP] Already replied to notification #{idx+1}. Skipping.")
+                    continue
+
+                print(f"\U0001f514 [Actionable Notification #{idx+1}] {text[:80].replace(chr(10), ' ')}...")
 
                 if self.preproduction:
-                    print(f"[{idx+1:02d}] 🧪 [PREPROD] Reply: {ai_reply[:50]}...")
+                    ai_reply = await self.ai.generate_notification_reply(text[:200], page=self.page)
+                    print(f"[{idx+1:02d}] \U0001f9ea [PREPROD] Reply: {ai_reply[:50]}...")
                     processed.append({"index": idx+1, "reply": ai_reply})
                 else:
                         # Step 6.2 Verification: Click thread/card & screenshot thread opened
@@ -101,40 +119,129 @@ class LinkedInNotificationsEngine:
 
                         await self.page.screenshot(path="step6_2_thread_opened.png")
 
-                        editor = await self.page.query_selector("div.comments-comment-box__content-inline div[contenteditable='true'], div.comments-comment-box div[contenteditable='true'], div[contenteditable='true'][role='textbox'], div[contenteditable='true']")
-                        if not editor:
-                            # 1. Try clicking Comment button on the post card to expand comment section
-                            comment_trigger = await self.page.query_selector("button:has-text('Comment'), button[aria-label*='Comment' i], button.comment-button")
-                            if comment_trigger:
-                                try:
-                                    if await comment_trigger.is_visible():
-                                        await comment_trigger.scroll_into_view_if_needed()
-                                        await comment_trigger.click(force=True)
-                                        print("💬 Clicked Comment button on post...")
-                                        await asyncio.sleep(1.5)
-                                        editor = await self.page.query_selector("div[contenteditable='true'][role='textbox'], div[contenteditable='true']")
-                                except Exception as c_err:
-                                    print(f"⚠️ Notice clicking comment trigger: {c_err}")
+                        # Closed Thread Verification Check: Detect if comments are disabled or thread is closed at our end
+                        closed_banner = await self.page.query_selector(
+                            "div[class*='comments-disabled'], "
+                            "span:has-text('Comments on this post have been turned off'), "
+                            "div:has-text('Comments are disabled'), "
+                            "p:has-text('Comments turned off')"
+                        )
+                        if closed_banner:
+                            print(f"⏩ [Notification #{idx+1}] Closed thread / comments turned off by author. Navigating back.")
+                            mark_engaged("notification_reply", text[:200])
+                            await PlaywrightResilience.safe_goto(self.page, "https://www.linkedin.com/notifications/")
+                            await self.page.evaluate("window.scrollTo(0, 0)")
+                            await asyncio.sleep(2.0)
+                            continue
 
-                        if not editor:
-                            # 2. Try clicking Reply button under comment thread
-                            reply_trigger = await self.page.query_selector(
-                                "button.comments-comment-social-bar__action-tab, "
-                                "button.comments-comment-item__reply-button, "
-                                "button[aria-label*='Reply to' i], "
-                                "button[aria-label*='Reply' i], "
-                                "button:has-text('Reply')"
-                            )
-                            if reply_trigger:
-                                try:
-                                    if await reply_trigger.is_visible():
-                                        await reply_trigger.scroll_into_view_if_needed()
-                                        await reply_trigger.click(force=True)
-                                        print("💬 Clicked Reply button under comment thread!")
+                        # Extract context from the opened page before replying
+                        post_context = ""
+                        parent_comment = ""
+                        try:
+                            # Try to get the specific post container first
+                            post_els = await self.page.query_selector_all("div.feed-shared-update-v2, article")
+                            if not post_els:
+                                # Fallback to main content area
+                                post_els = await self.page.query_selector_all("main, div.core-rail")
+                                
+                            if post_els:
+                                post_texts = [(await el.inner_text()).strip() for el in post_els]
+                                post_texts = [t for t in post_texts if len(t) > 50]
+                                if post_texts:
+                                    # Increase to 4000 to ensure we capture the actual post even if there is sidebar junk
+                                    post_context = post_texts[0][:4000]
+                                    
+                            # Attempt to grab the specific comment thread explicitly
+                            comment_els = await self.page.query_selector_all("div[data-testid*='commentList'], article.comments-comment-item, div.comments-comments-list")
+                            if comment_els:
+                                parent_comment = (await comment_els[0].inner_text()).strip()[:2000]
+                        except Exception as e:
+                            print(f"⚠️ Could not extract full context: {e}")
+                            
+                        # Generate the reply using the full context AND the screenshot!
+                        print("🧠 [GEMINI] Generating context-aware reply using text and Vision...")
+                        ai_reply = await self.ai.generate_notification_reply(
+                            notification_text=text[:200], 
+                            post_context=post_context,
+                            parent_comment=parent_comment,
+                            page=self.page,
+                            image_path="step6_2_thread_opened.png"
+                        )
+
+                        # 1. First try to find and click a "Reply" button, since we are usually replying to a comment in Notifications
+                        reply_clicked = False
+                        try:
+                            # Prefer "Reply" button inside a highlighted comment block if present
+                            highlighted = self.page.locator("article.highlighted, div.highlighted")
+                            if await highlighted.count() > 0:
+                                reply_locators = highlighted.get_by_role("button", name=re.compile(r"^Reply", re.IGNORECASE))
+                            else:
+                                reply_locators = self.page.get_by_role("button", name=re.compile(r"^Reply", re.IGNORECASE))
+                                
+                            if await reply_locators.count() > 0:
+                                for i in range(await reply_locators.count()):
+                                    btn = reply_locators.nth(i)
+                                    if await btn.is_visible():
+                                        await btn.scroll_into_view_if_needed()
+                                        await btn.click(force=True)
+                                        print("💬 Clicked Reply button!")
+                                        reply_clicked = True
                                         await asyncio.sleep(1.5)
-                                        editor = await self.page.query_selector("div[contenteditable='true'][role='textbox'], div[contenteditable='true']")
-                                except Exception as trig_err:
-                                    print(f"⚠️ Notice clicking reply trigger: {trig_err}")
+                                        break
+                        except Exception as e:
+                            print(f"⚠️ Error clicking Reply via get_by_role: {e}")
+                            
+                        # Fallback if get_by_role fails
+                        if not reply_clicked:
+                            try:
+                                reply_trigger = await self.page.query_selector(
+                                    "button[aria-label='Reply'], "
+                                    "button[aria-label*='Reply' i], "
+                                    "button.comments-comment-item__reply-button, "
+                                    "button[aria-label*='Reply to' i], "
+                                    "button:has-text('Reply')"
+                                )
+                                if reply_trigger and await reply_trigger.is_visible():
+                                    await reply_trigger.scroll_into_view_if_needed()
+                                    await reply_trigger.click(force=True)
+                                    print("💬 Clicked Reply button via query_selector!")
+                                    reply_clicked = True
+                                    await asyncio.sleep(1.5)
+                            except Exception:
+                                pass
+
+                        # 2. If we couldn't find a Reply button, maybe it's a top-level post mention. Try clicking "Comment"
+                        if not reply_clicked:
+                            try:
+                                comment_locators = self.page.get_by_role("button", name=re.compile(r"^Comment", re.IGNORECASE))
+                                if await comment_locators.count() > 0:
+                                    for i in range(await comment_locators.count()):
+                                        btn = comment_locators.nth(i)
+                                        if await btn.is_visible():
+                                            await btn.scroll_into_view_if_needed()
+                                            await btn.click(force=True)
+                                            print("💬 Clicked Comment button via get_by_role...")
+                                            await asyncio.sleep(1.5)
+                                            break
+                            except Exception:
+                                pass
+                                
+                        # 3. Now find the editor. 
+                        # We want the LAST visible editor, because nested reply boxes appear after the main comment box in the DOM.
+                        editor_locators = self.page.locator(
+                            "div[aria-label='Text editor for creating comment'], "
+                            "div.tiptap.ProseMirror, "
+                            "div[aria-label*='comment' i], "
+                            "div[contenteditable='true'][role='textbox'], "
+                            "div[contenteditable='true']"
+                        )
+                        editor = None
+                        count = await editor_locators.count()
+                        for i in range(count - 1, -1, -1):
+                            el = editor_locators.nth(i)
+                            if await el.is_visible():
+                                editor = await el.element_handle()
+                                break
 
                         if editor:
                             await editor.scroll_into_view_if_needed()
@@ -145,29 +252,44 @@ class LinkedInNotificationsEngine:
                             # Step 6.3 Verification: Screenshot reply typed
                             await self.page.screenshot(path="step6_3_reply_typed.png")
 
-                            # Match submit button strictly by aria-label='Reply', text, or primary class
-                            submit_btn = await self.page.query_selector(
-                                "button[aria-label='Reply' i], "
-                                "button[aria-label*='Reply' i], "
-                                "button[aria-label*='Post comment' i], "
-                                "button[aria-label*='Post' i], "
+                            # Strict selectors for the Reply/Post submit button
+                            # We get the LAST visible submit button to ensure it matches the nested reply box we just opened
+                            submit_locators = self.page.locator(
+                                "button[componentkey*='commentButtonSection' i], "
                                 "button.comments-comment-box__submit-button, "
                                 "button:has-text('Reply'), "
                                 "button:has-text('Post'), "
-                                "button.artdeco-button--primary"
+                                "button.artdeco-button--primary[type='submit']"
                             )
+                            submit_btn = None
+                            count = await submit_locators.count()
+                            for i in range(count - 1, -1, -1):
+                                el = submit_locators.nth(i)
+                                if await el.is_visible():
+                                    submit_btn = await el.element_handle()
+                                    break
+                            
                             if submit_btn:
-                                try:
-                                    await submit_btn.click(force=True, timeout=4000)
-                                except Exception:
-                                    await submit_btn.evaluate("b => b.click()")
-                                print("🚀 Clicked Reply / Post submit button!")
-                                await asyncio.sleep(random.uniform(3.5, 6.0))
+                                # Verify the button is visible + enabled before clicking
+                                is_vis = await submit_btn.is_visible()
+                                is_dis = await submit_btn.get_attribute("disabled")
+                                btn_text = (await submit_btn.inner_text()).strip()[:30]
+                                print(f"  [DOM] Submit btn found: text={btn_text!r} visible={is_vis} disabled={is_dis}")
+                                if is_vis and is_dis is None:
+                                    try:
+                                        await submit_btn.click(force=True, timeout=4000)
+                                    except Exception:
+                                        await submit_btn.evaluate("b => b.click()")
+                                    print("\U0001f680 Reply submitted!")
+                                    await asyncio.sleep(random.uniform(3.5, 6.0))
 
-                                # Step 6.3 Verification: Screenshot reply posted
-                                await self.page.screenshot(path="step6_3_reply_posted.png")
-                                print(f"[{idx+1:02d}] ✅ Reply posted")
-                                processed.append({"index": idx+1, "reply": ai_reply})
+                                    # Step 6.3 Verification: Screenshot reply posted
+                                    await self.page.screenshot(path="step6_3_reply_posted.png")
+                                    print(f"[{idx+1:02d}] \u2705 Reply posted")
+                                    processed.append({"index": idx+1, "reply": ai_reply})
+                                    mark_engaged("notification_reply", text[:200])
+                                else:
+                                    print(f"\u26a0\ufe0f Submit btn disabled/hidden — skipping click (visible={is_vis}, disabled={is_dis})")
                             else:
                                 print(f"⚠️ Could not find Reply/Post submit button for Notification #{idx+1}")
                         else:

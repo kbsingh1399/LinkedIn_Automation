@@ -9,9 +9,23 @@ import asyncio
 load_dotenv()
 
 class GeminiAIClient:
+    # Cache LLM responses for 1 hour per prompt key to prevent unbounded growth
+    _CACHE_TTL = 3600
+
     def __init__(self):
-        self.response_cache: Dict[str, str] = {}
+        self._response_cache: Dict[str, tuple] = {}  # key -> (response_text, timestamp)
         print("🌐 Gemini AI Client initialized in Web-Only Mode.")
+
+    def _cache_get(self, key: str) -> Optional[str]:
+        entry = self._response_cache.get(key)
+        if entry and (time.time() - entry[1]) < self._CACHE_TTL:
+            return entry[0]
+        if entry:
+            del self._response_cache[key]
+        return None
+
+    def _cache_set(self, key: str, value: str) -> None:
+        self._response_cache[key] = (value, time.time())
 
     async def automate_google_login(self, page) -> bool:
         print("🌐 [GEMINI WEB] Attempting automated Google Sign-In...")
@@ -71,6 +85,12 @@ class GeminiAIClient:
 
     async def generate_content_web(self, prompt: str, page, image_path: Optional[str] = None) -> Optional[str]:
         """Automates the Gemini Web Interface (gemini.google.com) to generate response."""
+        # TTL cache check — avoid duplicate LLM calls for same prompt within 1 hour
+        if not image_path:
+            cached = self._cache_get(prompt[:200])
+            if cached:
+                return cached
+
         context = page.context
         
         # 1. Search for existing Gemini tab in active context
@@ -263,7 +283,13 @@ class GeminiAIClient:
         # Screenshot verification: verify prompt and image pasted properly into Gemini UI
         await gemini_page.screenshot(path="step3_gemini_pasted.png")
 
-        send_btn = await gemini_page.query_selector("button[aria-label*='Send'], button[aria-label*='submit'], button[aria-label*='Run']")
+        send_btn = await gemini_page.query_selector(
+            "button[aria-label*='Send message' i], "
+            "button[aria-label*='Send' i], "
+            "button[aria-label*='submit' i], "
+            "button[aria-label*='Run' i], "
+            "button.send-button"
+        )
         if send_btn:
             await send_btn.click()
         else:
@@ -309,15 +335,16 @@ class GeminiAIClient:
 
     async def generate_content(self, prompt: str, system_instruction: str = "", page=None, image_path: Optional[str] = None) -> Optional[str]:
         cache_key = f"{system_instruction}\n\n{prompt}".strip()
-        if cache_key in self.response_cache:
+        cached = self._cache_get(cache_key)
+        if cached:
             print("💾 [CACHE HIT] Returning cached AI response.")
-            return self.response_cache[cache_key]
+            return cached
 
         if page:
             try:
                 web_res = await self.generate_content_web(prompt, page, image_path)
                 if web_res:
-                    self.response_cache[cache_key] = web_res
+                    self._cache_set(cache_key, web_res)
                     return web_res
             except Exception as e:
                 print(f"⚠️ Web Gemini failed ({type(e).__name__}).")
@@ -326,70 +353,139 @@ class GeminiAIClient:
         return None
 
     async def generate_feed_comment(self, post_text: str, author_name: str = "Author", media_desc: str = "", page=None, image_path: Optional[str] = None) -> str:
-        media_info = f"\nAttached Media: {media_desc}" if media_desc else ""
-        prompt = f"""You are Karanbir Singh, a Demand Planning & Supply Chain Specialist.
-Write an authentic 2-sentence LinkedIn comment for this post by {author_name}.
+        media_info = f"\nAttached image/media: {media_desc}" if media_desc else ""
+        prompt = f"""You are Karanbir Singh, a Supply Chain and Production Planning professional at Reliance Industries, India. You are active on LinkedIn and write comments as a thoughtful peer.
 
-Post:
+Adapt to the Post Type:
+- If it's a MEME or JOKE: Keep it lighthearted, fun, or drop a quick laughing/witty remark.
+- If it's RELIGIOUS or SPIRITUAL: Be respectful, humble, and warm (e.g., "Beautiful message", "Well said", "Truly inspiring").
+- If it's a PERSONAL MILESTONE (new job, anniversary, award): Be warm, congratulatory, and supportive.
+- If it's PROFESSIONAL/INDUSTRY content: Be intellectual and grounded in business/supply chain reality. Pick 1 specific fact to react to.
 
-Page Name & About Person: {author_name}
+Your commenting style rules:
+- Write a highly humanized, natural, conversational comment. Sound like a real person typing on their phone, not an AI.
+- NEVER start with robotic phrases like "Great post", "Spot on", "Absolutely", "Loved this" (unless it's a personal/spiritual post where simple warmth is fine).
+- NEVER end with: "Keep it up!", "All the best!", "More power to you!", "Kudos!"
+- Write 1-2 sentences max.
+- Plain English. No buzzword stacking, no hollow affirmations.
+- Return ONLY the comment text. No quotes, no preamble.
 
-Post Content {post_text}{media_info}
+BAD (never write like this):
+"Congratulations on this amazing milestone! Wishing you all the best on your journey ahead."
 
-Requirements: Address specific concepts, share practical insight, NO generic fluff. Return ONLY the comment."""
+GOOD (write like this):
+"Cellulose acetate from agricultural residue is an interesting feedstock choice — in supply chain terms, feedstock variability alone can make or break unit economics at pilot scale. Curious whether the CSTUP grant covers a pilot batch run or is scoped to lab characterisation for now?"
+
+Now write a 2-sentence comment for this post:
+Author: {author_name}
+Post: {post_text}{media_info}"""
 
         result = await self.generate_content(prompt, page=page, image_path=image_path)
         if result:
-            return result
+            # Strip any accidental leading/trailing quotes Gemini sometimes adds
+            return result.strip().strip('"').strip("'")
 
         text_lower = (post_text + " " + media_desc).lower()
-        if "supply chain" in text_lower or "logistics" in text_lower:
-            templates = [
-                "Real-world disruptions highlight exact lead-time vulnerabilities that static forecasts miss.",
-                "Proactive inventory positioning and multi-echelon demand forecasting make all the difference."
-            ]
+        if "supply chain" in text_lower or "logistics" in text_lower or "inventory" in text_lower:
+            return random.choice([
+                "Lead-time variability is exactly where static safety-stock models break down — multi-echelon simulation handles this far better.",
+                "S&OP alignment between commercial and supply teams is still the single biggest unlock most companies miss."
+            ])
+        elif "ai" in text_lower or "machine learning" in text_lower or "data" in text_lower:
+            return random.choice([
+                "Feature engineering on time-series demand data is where most ML forecasting projects either win or stall.",
+                "Model accuracy matters less than model trust — if planners don\'t believe the output, adoption stays at zero."
+            ])
         else:
-            templates = [
-                "Great point. Balancing strategic foresight with operational execution turns ideas into scalable results.",
-                "A very relevant perspective. Continuous optimization and data-driven decisions are vital today."
-            ]
-        return random.choice(templates)
+            return random.choice([
+                "The gap between research validation and operational scale-up is where most promising projects stall — good to see institutional backing bridging that.",
+                "Persistence through iterative failure is genuinely underrated in technical work — the grant is recognition of the process, not just the outcome."
+            ])
 
-    async def generate_notification_reply(self, notification_text: str, parent_comment: str = "", page=None) -> str:
-        prompt = f"""You are a senior tech professional replying to a notification.
+    async def generate_notification_reply(self, notification_text: str, parent_comment: str = "", post_context: str = "", page=None, image_path: Optional[str] = None) -> str:
+        prompt = f"""You are Karanbir Singh, a Supply Chain and Production Planning professional at Reliance Industries, India.
 
-Notification: {notification_text}
-Context: {parent_comment}
+Someone replied to or mentioned you in a LinkedIn comment thread.
 
-Write a friendly 1-2 sentence response. Return ONLY the reply."""
-        result = await self.generate_content(prompt, page=page)
+Your reply rules:
+- Write a highly humanized, natural, and conversational reply. Sound like a real person, not an AI.
+- Adapt to the conversation tone: Be lighthearted for memes, respectful for spiritual posts, supportive for personal news, and professional for industry topics.
+- Reference something specific from their message — a word, their name, or the topic they raised
+- 1-2 sentences only
+- Tone: warm, collegial, and grounded
+- NEVER use: "Absolutely!", "Totally agree!", "Great point!", "Thanks for sharing!", "Indeed!", "Spot on!"
+- Do NOT start with "Thank you for your"
+- Return ONLY the reply text. No quotes.
+
+Post Content including attachment if it have one:
+{post_context}
+
+Karan comment:
+{parent_comment}
+
+Reply to karan comment:
+{notification_text}
+
+If an image of the post/thread is attached, analyze it to understand the full context of the conversation and the original post (such as memes, infographics, or specific text).
+
+Write a reply:"""
+        
+        result = await self.generate_content(prompt, page=page, image_path=image_path)
         if result:
-            return result
+            return result.strip().strip('"').strip("'")
         return random.choice([
-            "Appreciate the feedback! Spot on regarding the implementation tradeoffs.",
-            "Thanks for sharing your input! Balancing speed with architectural clarity is key."
+            "Exactly — the practical constraint is always where the theory gets stress-tested.",
+            "Fair point, and that tradeoff is often what separates a pilot from a scaled deployment."
         ])
 
-    async def generate_inbox_reply(self, chat_history: str, partner_name: str, page: Page = None, image_path: str = None) -> str:
-        prompt = f"""
-You are the owner of this LinkedIn account.
-You are having a direct message conversation with: {partner_name}
+    async def generate_inbox_reply(self, chat_history: str, partner_name: str, page=None, image_path: str = None) -> str:
+        # Cap history to last 15 exchanges to prevent token overflow
+        history_lines = [l for l in chat_history.strip().split("\n") if l.strip()]
+        capped_history = "\n".join(history_lines[-30:])  # ~15 exchanges = 30 lines
 
-Here is the recent chat history (ordered oldest to newest):
-{chat_history}
+        prompt = f"""You are Karanbir Singh, a Supply Chain and Production Planning professional at Reliance Industries, India.
 
-Please write a natural, friendly, and professional reply.
-Keep it concise, like a real chat message (1-3 sentences maximum).
-Do not include placeholders like [Your Name].
-Do not include quotation marks around your reply.
-"""
+You get LinkedIn DMs from recruiters, students, peers, and connections.
+You are replying to a DM from: {partner_name}
+
+Recent conversation (oldest to newest):
+{capped_history}
+
+Reply rules:
+- Write a highly humanized, natural DM. Sound like a real person chatting, not an AI writing a formal email.
+- 1-3 sentences max
+- Match their register and context: lighthearted for memes/jokes, respectful for spiritual, professional for work topics.
+- If they asked a specific question, answer it directly and honestly
+- Birthday/congrats messages: warm but brief, not over-the-top
+- Job/referral asks: be honest about your capacity without over-promising
+- If the conversation is already closed/complete, a short warm close is fine
+- Never use placeholders like [Your Name] or [Company]
+- Do not wrap reply in quotes
+- Return ONLY the reply text."""
+
         if page:
-            return await self.generate_content_web(prompt, page, image_path=image_path)
-        
+            result = await self.generate_content_web(prompt, page, image_path=image_path)
+            if result:
+                return result.strip().strip('"').strip("'")
+
         result = await self.generate_content(prompt, page=page)
         if result:
-            return result
+            return result.strip().strip('"').strip("'")
         return random.choice([
-            "Thanks for reaching out! Looking forward to keeping in touch.",
-            "Appreciate the message! Hope everything is going great on your end."
+            "Hey, thanks for reaching out! Happy to connect and chat more.",
+            "Appreciate the message — let me know how I can help."
+        ])
+
+
+        if page:
+            result = await self.generate_content_web(prompt, page, image_path=image_path)
+            if result:
+                return result.strip().strip('"').strip("'")
+
+        result = await self.generate_content(prompt, page=page)
+        if result:
+            return result.strip().strip('"').strip("'")
+        return random.choice([
+            "Hey, thanks for reaching out! Happy to connect and chat more.",
+            "Appreciate the message — let me know how I can help."
         ])

@@ -12,10 +12,18 @@ from linkedin_publisher import LinkedInPublisher
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
-REPORT_PATH = Path(r"C:\Users\SIGMA\.gemini\antigravity-ide\brain\4ae04bfb-5033-4bd5-b14a-b253b801a724\dom_analysis_report.json")
+REPORT_PATH = Path(r"C:\Users\SIGMA\.gemini\antigravity-ide\brain\728c3d79-fe7b-4a11-9cd2-0486c8fc9c68\dom_analysis_report.json")
 REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 report_data = {}
+
+async def check_cdp_available(port: int = 9222) -> bool:
+    import urllib.request
+    try:
+        req = urllib.request.urlopen(f"http://localhost:{port}/json/version", timeout=2)
+        return req.status == 200
+    except Exception:
+        return False
 
 async def probe_page(page, url: str, label: str):
     print(f"\n{'='*60}")
@@ -113,16 +121,24 @@ async def probe_page(page, url: str, label: str):
 async def main():
     publisher = LinkedInPublisher(headless=False)
     async with async_playwright() as p:
-        user_data_dir = str(publisher.user_data_dir)
-        context = await p.chromium.launch_persistent_context(
-            user_data_dir=user_data_dir,
-            channel="chrome",
-            headless=False,
-            no_viewport=True,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            args=["--new-window", "--start-maximized", "--disable-blink-features=AutomationControlled"]
-        )
-        page = context.pages[0] if context.pages else await context.new_page()
+        cdp_available = await check_cdp_available(9222)
+        if cdp_available:
+            print("🔗 Connecting directly to user's debug Chrome instance at http://localhost:9222 ...")
+            browser = await p.chromium.connect_over_cdp("http://localhost:9222")
+            context = browser.contexts[0] if browser.contexts else await browser.new_context()
+            page = context.pages[0] if context.pages else await context.new_page()
+            await page.bring_to_front()
+        else:
+            user_data_dir = str(publisher.user_data_dir)
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir=user_data_dir,
+                channel="chrome",
+                headless=False,
+                no_viewport=True,
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                args=["--new-window", "--start-maximized", "--disable-blink-features=AutomationControlled"]
+            )
+            page = context.pages[0] if context.pages else await context.new_page()
 
         print("🔍 Verifying LinkedIn Session...")
         await publisher.ensure_logged_in(page)

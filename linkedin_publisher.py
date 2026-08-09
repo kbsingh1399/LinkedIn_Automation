@@ -120,6 +120,8 @@ class LinkedInPublisher:
             except Exception:
                 pass
 
+        from config import find_free_port
+        pub_port = find_free_port(9223)
         async with async_playwright() as p:
             context = await p.chromium.launch_persistent_context(
                 user_data_dir=str(self.user_data_dir),
@@ -127,8 +129,16 @@ class LinkedInPublisher:
                 headless=self.headless,
                 no_viewport=True,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=["--new-window", "--start-maximized", "--remote-debugging-port=9223", "--disable-blink-features=AutomationControlled", "--test-type"]
-
+                args=[
+                    "--new-window", 
+                    "--start-maximized", 
+                    f"--remote-debugging-port={pub_port}", 
+                    "--disable-blink-features=AutomationControlled", 
+                    "--test-type",
+                    "--disable-background-timer-throttling",
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-renderer-backgrounding"
+                ]
             )
             page = context.pages[0] if context.pages else await context.new_page()
 

@@ -7,6 +7,7 @@ from typing import List, Dict, Any
 from playwright.async_api import Page
 from utils.playwright_utils import PlaywrightResilience
 from gemini_ai import GeminiAIClient
+from engagement_tracker import already_engaged, mark_engaged
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -22,8 +23,10 @@ class LinkedInFeedEngine:
         if not await PlaywrightResilience.safe_goto(self.page, "https://www.linkedin.com/feed/"):
             return []
 
-        # Ensure viewport starts at top so the very first post is processed first
+        # Reset to top first, then human-scroll down to load initial DOM cards
         await self.page.evaluate("window.scrollTo(0, 0)")
+        await asyncio.sleep(0.8)
+        await PlaywrightResilience.human_scroll(self.page, random.randint(500, 800))
         await asyncio.sleep(1.5)
 
         # Robust selector fallback list for feed cards
@@ -67,6 +70,11 @@ class LinkedInFeedEngine:
         print(f"🔍 Found {len(post_cards)} post cards on feed viewport.")
         engaged = []
 
+        from engagement_tracker import check_daily_limit, get_pacing_multiplier
+        pacing = get_pacing_multiplier()
+        if check_daily_limit("feed_comment", 20):
+            print("ℹ️ [Feed Mode] Daily comment quota (20/20) reached. Running in LIKE-ONLY mode for feed posts.")
+
         for idx, card in enumerate(post_cards):
             if len(engaged) >= max_posts:
                 break
@@ -77,9 +85,32 @@ class LinkedInFeedEngine:
                 except Exception:
                     pass
 
+                # Extract Author Name FIRST and print immediately to logs
+                author_handle = await card.evaluate_handle("""el => {
+                    const nameEl = el.querySelector('span.update-components-actor__name, span.feed-shared-actor__name, span[class*="actor__title"], div[class*="actor__title"], a[data-view-name*="actor"], a[href*="/in/"], a[class*="actor"]');
+                    if (nameEl && nameEl.innerText.trim()) return nameEl.innerText.trim();
+                    const imgEl = el.querySelector('.update-components-actor img, .feed-shared-actor img, img[alt]');
+                    if (imgEl && imgEl.alt && imgEl.alt.trim() && !imgEl.alt.includes('logo')) return imgEl.alt.trim();
+                    const ariaEl = el.querySelector('[aria-label*="profile" i], [aria-label*="View" i]');
+                    if (ariaEl) {
+                        const aria = ariaEl.getAttribute('aria-label') || '';
+                        const match = aria.match(/View\\s+([^'’]+)['’]s\\s+profile/i);
+                        if (match) return match[1].trim();
+                    }
+                    return '';
+                }""")
+                raw_author = await author_handle.json_value() if author_handle else ""
+                author = raw_author.splitlines()[0] if raw_author else ""
+                if "•" in author:
+                    author = author.split("•")[0].strip()
+                if not author:
+                    author = "LinkedIn Creator"
+
+                print(f"\n📌 [Feed Post #{len(engaged) + 1}] Processing post by: {author}")
+
                 # 1. Expand "...more" button using exact LinkedIn data-test-id attribute
                 try:
-                    see_more = await card.query_selector("button[data-test-id='expandable-text-button'], [data-test-id='expandable-text-button'], button:has-text('...more')")
+                    see_more = await card.query_selector("button[data-testid='expandable-text-button'], [data-testid='expandable-text-button'], button[data-test-id='expandable-text-button'], button:has-text('...more')")
                     if not see_more:
                         see_more_handle = await card.evaluate_handle("""el => {
                             const btns = Array.from(el.querySelectorAll('button, span[role="button"], span'));
@@ -103,10 +134,16 @@ class LinkedInFeedEngine:
 
                 # 2. Extract FULL post commentary text without line truncation
                 text_el = await card.query_selector(
+                    "[data-testid='expandable-text-box'], "
+                    "span[data-testid='expandable-text-box'], "
                     "div.update-components-update-activity__commentary, "
                     "div.feed-shared-update-v2__description-text, "
                     "div.update-components-text, "
+                    "div[data-view-name*='update-text'], "
+                    "div[data-view-name*='commentary'], "
                     "span.break-words[class*='commentary'], "
+                    "p.break-words, "
+                    "span.break-words, "
                     "div.feed-shared-text"
                 )
                 
@@ -127,15 +164,11 @@ class LinkedInFeedEngine:
                 if len(post_text) < 20:
                     continue
 
-                # Get author name & headline/organization using robust selector array
-                author_el = await card.query_selector(
-                    "span.update-components-actor__name, "
-                    "span.feed-shared-actor__name, "
-                    "div[class*='actor__title'], "
-                    "a[class*='actor']"
-                )
-                author = (await author_el.inner_text()).strip() if author_el else "LinkedIn Creator"
-                author = author.splitlines()[0] if author else "LinkedIn Creator"
+                # Dedup: skip if we already commented on this post within 7 days
+                dedup_key = f"{author}::{post_text[:200]}"
+                if already_engaged("feed_comment", dedup_key):
+                    print(f"  [SKIP] Already commented on {author}'s post. Skipping.")
+                    continue
 
                 # Extract headline/organization (e.g. "Management Trainee @ UltraTech Cement")
                 headline_el = await card.query_selector(
@@ -160,6 +193,12 @@ class LinkedInFeedEngine:
 
                     # Look for attached media image inside post card (strictly ignoring profile photos / avatar icons)
                     img_handle = await card.evaluate_handle("""el => {
+                        // First check for explicit media anchor containers (e.g. showCommentBox=true or highlightedUpdateUrn)
+                        const mediaAnchorImg = el.querySelector('a[href*="showCommentBox=true"] img, a[href*="highlightedUpdateUrn"] img, div.update-components-image img');
+                        if (mediaAnchorImg && mediaAnchorImg.offsetWidth > 100 && mediaAnchorImg.offsetHeight > 100) {
+                            return mediaAnchorImg;
+                        }
+
                         const imgs = Array.from(el.querySelectorAll('img'));
                         return imgs.find(img => {
                             // Exclude profile photos, actor avatars, company logos, and header icons
@@ -205,14 +244,10 @@ class LinkedInFeedEngine:
                 except Exception as img_err:
                     print(f"⚠️ Could not capture post image/screenshot: {img_err}")
 
-                ai_comment = await self.ai.generate_feed_comment(post_text, author_with_details, page=self.page, image_path=image_path)
-
-                if self.preproduction:
-                    print(f"[{len(engaged)+1}] 🧪 [PREPROD] {author}: {ai_comment[:50]}...")
-                    engaged.append({"author": author, "comment": ai_comment})
-                else:
-                    # Step 1: Like Post & Verify via Screenshot
-                    like_btn = await card.query_selector("button.react-button__trigger, button[aria-label*='Like' i], button:has-text('Like')")
+                # Step 1: Like Post (Runs unconditionally for every post card, even if comment quota is exhausted)
+                if not self.preproduction:
+                    await asyncio.sleep(random.uniform(1.0, 2.2) * pacing)
+                    like_btn = await card.query_selector("button[aria-label*='Reaction button' i], button.react-button__trigger, button[aria-label*='Like' i], button:has-text('Like')")
                     if not like_btn:
                         like_handle = await card.evaluate_handle("""el => {
                             const btns = Array.from(el.querySelectorAll('button, [role="button"]'));
@@ -236,19 +271,35 @@ class LinkedInFeedEngine:
                             }""")
                             if not is_already_liked:
                                 await like_btn.scroll_into_view_if_needed()
-                                await asyncio.sleep(0.4)
+                                try:
+                                    box = await like_btn.bounding_box()
+                                    if box:
+                                        await self.page.mouse.move(box["x"] + box["width"]/2 + random.randint(-5, 5), box["y"] + box["height"]/2 + random.randint(-5, 5))
+                                except Exception:
+                                    pass
+                                await asyncio.sleep(random.uniform(0.4, 0.8) * pacing)
                                 await like_btn.click(force=True)
                                 print(f"👍 Liked {author}'s post")
-                                await asyncio.sleep(random.uniform(1.2, 2.0))
-                                # Verification Step 1: Screenshot verifying Liked state
+                                await asyncio.sleep(random.uniform(1.2, 2.0) * pacing)
                                 await self.page.screenshot(path="step1_post_liked.png")
-                                await self.page.screenshot(path="debug_linkedin_liked.png")
                             else:
                                 print(f"👍 Post by {author} is already liked.")
-                                await self.page.screenshot(path="step1_post_liked.png")
                         except Exception as lk_err:
                             print(f"⚠️ Like button notice: {lk_err}")
 
+                # Check if Daily Comment Quota (20/20) is exhausted
+                if check_daily_limit("feed_comment", 20):
+                    print(f"⏩ [Comment Cap 20/20] Liked {author}'s post, skipping comment generation.")
+                    # Human behavior: Organic scroll down to next post card
+                    await PlaywrightResilience.human_scroll(self.page, random.randint(400, 700))
+                    continue
+
+                ai_comment = await self.ai.generate_feed_comment(post_text, author_with_details, page=self.page, image_path=image_path)
+
+                if self.preproduction:
+                    print(f"[{len(engaged)+1}] 🧪 [PREPROD] {author}: {ai_comment[:50]}...")
+                    engaged.append({"author": author, "comment": ai_comment})
+                else:
                     # Open Comment Box
                     comment_btn = await card.query_selector("button.comment-button, button[aria-label*='Comment' i], button:has-text('Comment')")
                     if not comment_btn:
@@ -272,9 +323,9 @@ class LinkedInFeedEngine:
                             pass
 
                     # Step 4 & Step 5: Type Comment & Submit with Screenshot Verifications
-                    editor = await card.query_selector("div[contenteditable='true'], div[role='textbox']")
+                    editor = await card.query_selector("div[aria-label='Text editor for creating comment'], div.tiptap.ProseMirror, div[aria-label*='comment' i], div[contenteditable='true'], div[role='textbox']")
                     if not editor:
-                        editor = await self.page.query_selector("div.comments-comment-box div[contenteditable='true']")
+                        editor = await self.page.query_selector("div[aria-label='Text editor for creating comment'], div.comments-comment-box div[contenteditable='true'], div.tiptap.ProseMirror, div[aria-label*='comment' i], div[contenteditable='true'][role='textbox']")
 
                     if editor:
                         await self.page.bring_to_front()
@@ -297,7 +348,12 @@ class LinkedInFeedEngine:
                         await self.page.screenshot(path="step4_comment_written.png")
                         await self.page.screenshot(path="debug_linkedin_comment_typed.png")
 
-                        submit_btn = await card.query_selector("button.comments-comment-box__submit-button, div.comments-comment-box button.artdeco-button--primary, form.comments-comment-box__form button[type='submit']")
+                        submit_btn = await card.query_selector(
+                            "button.comments-comment-box__submit-button, "
+                            "form.comments-comment-box__form button.artdeco-button--primary, "
+                            "div.comments-comment-box__submit button.artdeco-button--primary, "
+                            "button.artdeco-button--primary[type='submit']"
+                        )
                         if not submit_btn:
                             submit_handle = await card.evaluate_handle("""el => {
                                 const btns = Array.from(el.querySelectorAll('button'));
@@ -312,8 +368,9 @@ class LinkedInFeedEngine:
                         if not submit_btn:
                             submit_btn = await self.page.query_selector(
                                 "button.comments-comment-box__submit-button, "
-                                "button[aria-label*='Post comment' i], "
-                                "button.artdeco-button--primary[class*='submit']"
+                                "form.comments-comment-box__form button.artdeco-button--primary, "
+                                "div.comments-comment-box__submit button.artdeco-button--primary, "
+                                "button.artdeco-button--primary[type='submit']"
                             )
 
                         if submit_btn:
@@ -327,6 +384,12 @@ class LinkedInFeedEngine:
                             # Verification Step 5: Screenshot verifying comment posted
                             await self.page.screenshot(path="step5_comment_posted.png")
                             engaged.append({"author": author, "comment": ai_comment})
+                            # Record engagement so we never double-comment this post
+                            mark_engaged("feed_comment", dedup_key)
+
+                # Human behavior: Organic scroll down + 20% chance of brief reverse scroll to re-read
+                await PlaywrightResilience.human_scroll(self.page, random.randint(450, 750))
+                await PlaywrightResilience.occasional_reverse_scroll(self.page, probability=0.20)
 
                 # Ensure page stays on feed URL; if navigation happened, break — card handles are stale
                 if "linkedin.com/feed" not in self.page.url:

@@ -100,6 +100,53 @@ class PlaywrightResilience:
             await asyncio.sleep(random.uniform(0.008, 0.025))
 
     @staticmethod
+    async def human_scroll(page: Page, total_distance: int = 600):
+        """
+        Simulates realistic human scrolling:
+        1. Breaks total distance into 3-6 organic micro-scroll bursts with ease-in-out curve.
+        2. Moves mouse cursor smoothly across viewport during scroll.
+        3. 20% chance of mid-scroll reading pause (1.2s - 3.5s).
+        4. 25% chance of slight reverse scroll up (-80px to -220px) to re-read.
+        """
+        try:
+            viewport = page.viewport_size or {"width": 1280, "height": 850}
+            center_x = viewport["width"] // 2
+            
+            # Micro-move mouse cursor near center of feed
+            mouse_target_x = center_x + random.randint(-150, 150)
+            mouse_target_y = random.randint(300, 600)
+            await page.mouse.move(mouse_target_x, mouse_target_y)
+
+            # Split total distance into variable micro-bursts
+            num_bursts = random.randint(3, 6)
+            remaining = total_distance
+            
+            for burst_idx in range(num_bursts):
+                if remaining <= 0:
+                    break
+                
+                # Ease-in-out distance calculation per burst
+                step = int((remaining / (num_bursts - burst_idx)) * random.uniform(0.7, 1.3))
+                step = max(50, min(step, 280))
+                
+                # Perform wheel scroll with micro-delay
+                await page.mouse.wheel(0, step)
+                remaining -= step
+                await asyncio.sleep(random.uniform(0.12, 0.35))
+                
+                # 20% chance of mid-scroll reading pause
+                if random.random() < 0.20:
+                    await asyncio.sleep(random.uniform(1.2, 3.2))
+
+            # 25% chance of slight reverse scroll up (human re-reading behavior)
+            if random.random() < 0.25:
+                reverse_dist = random.randint(-220, -80)
+                await page.mouse.wheel(0, reverse_dist)
+                await asyncio.sleep(random.uniform(0.6, 1.4))
+        except Exception:
+            pass
+
+    @staticmethod
     async def occasional_reverse_scroll(page: Page, probability: float = 0.25):
         if random.random() < probability:
             await page.mouse.wheel(0, random.randint(-300, -120))
@@ -137,5 +184,45 @@ class PlaywrightResilience:
                 pass
 
     @staticmethod
+    async def dismiss_blocking_overlays(page: Page) -> bool:
+        """Finds and dismisses actual modal overlays or toast popups that intercept pointer events."""
+        overlay_selectors = [
+            "button.artdeco-modal__dismiss",
+            "div.artdeco-modal button[aria-label*='Dismiss' i]",
+            "div.artdeco-modal button[aria-label*='Close' i]",
+            "button.artdeco-toast-item__dismiss"
+        ]
+        dismissed = False
+        for sel in overlay_selectors:
+            try:
+                btn = await page.query_selector(sel)
+                if btn and await btn.is_visible():
+                    await btn.click(force=True)
+                    print(f"🛡️ [Safety Gate] Dismissed modal overlay: {sel}")
+                    dismissed = True
+                    await asyncio.sleep(0.5)
+            except Exception:
+                pass
+        return dismissed
+
+    @staticmethod
+    async def verify_security_checkpoint(page: Page) -> bool:
+        """Detects if LinkedIn triggered a security checkpoint or CAPTCHA page."""
+        try:
+            url_lower = page.url.lower()
+            if "checkpoint" in url_lower or "challenge" in url_lower or "captcha" in url_lower:
+                print("🚨 [Security Gate] LinkedIn Security Checkpoint / CAPTCHA detected!")
+                print("   Execution paused to protect your account. Please solve the security check manually in Chrome.")
+                return True
+            checkpoint_heading = await page.query_selector("h1:has-text('Security Check'), h1:has-text('Verify it'), div:has-text('security check')")
+            if checkpoint_heading:
+                print("🚨 [Security Gate] LinkedIn Security Checkpoint heading detected!")
+                return True
+        except Exception:
+            pass
+        return False
+
+    @staticmethod
     def get(key: str) -> List[str]:
         return PlaywrightResilience.SELECTORS.get(key, [])
+

@@ -1,0 +1,560 @@
+{
+  "linkedin_feed": {
+    "url": "https://www.linkedin.com/feed/",
+    "title": "Feed | LinkedIn",
+    "selectors": {
+      "feed_cards": {
+        "best_selector": "div[data-view-name='feed-full-update']",
+        "best_count": 8,
+        "all_tested": [
+          {
+            "selector": "div[data-view-name='feed-full-update']",
+            "count": 8
+          },
+          {
+            "selector": "[role='listitem']",
+            "count": 8
+          }
+        ],
+        "samples": [
+          {
+            "index": 0,
+            "tag": "DIV",
+            "role": "",
+            "aria": "",
+            "class": "b83cc1c0 _68452ae9",
+            "text": "Feed post  Suggested  Soumyadip Deb     \u2022 2nd  CAT 99.70 | OW | IR 10 (IIM C) | D. E. Shaw | PGDBA '"
+          },
+          {
+            "index": 1,
+            "tag": "DIV",
+            "role": "",
+            "aria": "",
+            "class": "b83cc1c0 _68452ae9",
+            "text": "Feed post  THARUNESH CG     \u2022 1st  Mechanical engineering students @nit trichy  30m \u2022   I'm excited "
+          }
+        ]
+      },
+      "see_more_buttons": {
+        "best_selector": null,
+        "best_count": 0,
+        "all_tested": [],
+        "samples": []
+      },
+      "post_text_content": {
+        "best_selector": null,
+        "best_count": 0,
+        "all_tested": [],
+        "samples": []
+      },
+      "author_name": {
+        "best_selector": null,
+        "best_count": 0,
+        "all_tested": [],
+        "samples": []
+      },
+      "author_headline": {
+        "best_selector": null,
+        "best_count": 0,
+        "all_tested": [],
+        "samples": []
+      },
+      "like_button": {
+        "best_selector": "button[aria-label*='React' i]",
+        "best_count": 18,
+        "all_tested": [
+          {
+            "selector": "button[aria-label*='React' i]",
+            "count": 18
+          }
+        ],
+        "samples": [
+          {
+            "index": 0,
+            "tag": "BUTTON",
+            "role": "",
+            "aria": "Reaction button state: no reaction",
+            "class": "_255816ee _074d7d54 _6bc7a5d9 b53876b3 _3f927f36 _5e281f78 _",
+            "text": "9"
+          },
+          {
+            "index": 1,
+            "tag": "BUTTON",
+            "role": "",
+            "aria": "Open reactions menu",
+            "class": "_255816ee _074d7d54 _6bc7a5d9 b53876b3 _3f927f36 _5e281f78 _",
+            "text": ""
+          }
+        ]
+      },
+      "comment_button": {
+        "best_selector": "button[aria-label*='Comment' i]",
+        "best_count": 10,
+        "all_tested": [
+          {
+            "selector": "button[aria-label*='Comment' i]",
+            "count": 10
+          }
+        ],
+        "samples": [
+          {
+            "index": 0,
+            "tag": "BUTTON",
+            "role": "",
+            "aria": "Comment",
+            "class": "_255816ee _074d7d54 _6bc7a5d9 b53876b3 _3f927f36 _5e281f78 _",
+            "text": "1"
+          },
+          {
+            "index": 1,
+            "tag": "BUTTON",
+            "role": "",
+            "aria": "Comment",
+            "class": "_255816ee _074d7d54 _6bc7a5d9 b53876b3 _3f927f36 _5e281f78 _",
+            "text": "\u200b"
+          }
+        ]
+      },
+      "rich_text_editor": {
+        "best_selector": null,
+        "best_count": 0,
+        "all_tested": [],
+        "samples": []
+      },
+      "comment_submit_button": {
+        "best_selector": null,
+        "best_count": 0,
+        "all_tested": [],
+        "samples": []
+      }
+    }
+  },
+  "linkedin_notifications": {
+    "url": "https://www.linkedin.com/notifications/",
+    "title": "(5) Notifications | LinkedIn",
+    "selectors": {
+      "notification_cards": {
+        "best_selector": "div[class*='nt-card']",
+        "best_count": 95,
+        "all_tested": [
+          {
+            "selector": "article.nt-card",
+            "count": 10
+          },
+          {
+            "selector": "main article",
+            "count": 10
+          },
+          {
+            "selector": "div[class*='nt-card']",
+            "count": 95
+          }
+        ],
+        "samples": [
+          {
+            "index": 0,
+            "tag": "DIV",
+            "role": "",
+            "aria": "",
+            "class": "nt-card-list\n          nt-card-list--paginated\n          \n  ",
+            "text": "Unread notification.  Suggested for you: Your CTC = 3.5 LPA, but the company budget = 15 LPA (How to"
+          },
+          {
+            "index": 1,
+            "tag": "DIV",
+            "role": "",
+            "aria": "",
+            "class": "nt-card__container\n        \n        ",
+            "text": "Unread notification.  Suggested for you: Your CTC = 3.5 LPA, but the company budget = 15 LPA (How to"
+          }
+        ]
+      },
+      "reply_button": {
+        "best_selector": null,
+        "best_count": 0,
+        "all_tested": [],
+        "samples": []
+      },
+      "notification_editor": {
+        "best_selector": null,
+        "best_count": 0,
+        "all_tested": [],
+        "samples": []
+      },
+      "reply_submit_button": {
+        "best_selector": "button:has-text('Post')",
+        "best_count": 5,
+        "all_tested": [
+          {
+            "selector": "button:has-text('Post')",
+            "count": 5
+          }
+        ],
+        "samples": [
+          {
+            "index": 0,
+            "tag": "BUTTON",
+            "role": "radio",
+            "aria": "My posts",
+            "class": "artdeco-pill artdeco-pill--slate artdeco-pill--3 artdeco-pil",
+            "text": "My posts"
+          },
+          {
+            "index": 1,
+            "tag": "BUTTON",
+            "role": "link",
+            "aria": "",
+            "class": "artdeco-card overflow-hidden mt2",
+            "text": "KARANBIR SINGH My pleasure, Mona! Hope you have a wonderful day celebrating with family and friends."
+          }
+        ]
+      }
+    }
+  },
+  "linkedin_messaging": {
+    "url": "https://www.linkedin.com/messaging/thread/2-YTQ4N2U1ZTUtNmRiYy00NmQ5LWFkNjctYmE5ZWM3YjNiZGI0XzEwMA==/",
+    "title": "(5) Messaging | LinkedIn",
+    "selectors": {
+      "conversation_cards": {
+        "best_selector": "li.msg-conversation-listitem",
+        "best_count": 20,
+        "all_tested": [
+          {
+            "selector": "li.msg-conversation-listitem",
+            "count": 20
+          },
+          {
+            "selector": "div.msg-conversation-card",
+            "count": 10
+          },
+          {
+            "selector": "div.msg-conversation-listitem__link",
+            "count": 10
+          },
+          {
+            "selector": "div.msg-selectable-entity",
+            "count": 10
+          }
+        ],
+        "samples": [
+          {
+            "index": 0,
+            "tag": "LI",
+            "role": "",
+            "aria": "",
+            "class": "ember-view  scaffold-layout__list-item msg-conversation-list",
+            "text": "Kumar RM Aug 5 Aug 5  You: Have a great week ahead!  . Active conversation . Press return to go to c"
+          },
+          {
+            "index": 1,
+            "tag": "LI",
+            "role": "",
+            "aria": "",
+            "class": "ember-view  scaffold-layout__list-item msg-conversation-list",
+            "text": "Shaik Mohamed Aug 5 Aug 5  You: Thanks for connecting, Shaik. I'm currently all set on the training "
+          }
+        ]
+      },
+      "participant_names": {
+        "best_selector": "h3.msg-conversation-listitem__participant-names",
+        "best_count": 10,
+        "all_tested": [
+          {
+            "selector": "h3.msg-conversation-listitem__participant-names",
+            "count": 10
+          },
+          {
+            "selector": "h3",
+            "count": 10
+          }
+        ],
+        "samples": [
+          {
+            "index": 0,
+            "tag": "H3",
+            "role": "",
+            "aria": "",
+            "class": "msg-conversation-listitem__participant-names msg-conversatio",
+            "text": "Kumar RM"
+          },
+          {
+            "index": 1,
+            "tag": "H3",
+            "role": "",
+            "aria": "",
+            "class": "msg-conversation-listitem__participant-names msg-conversatio",
+            "text": "Shaik Mohamed"
+          }
+        ]
+      },
+      "active_message_editor": {
+        "best_selector": "div.msg-form__contenteditable[contenteditable='true']",
+        "best_count": 1,
+        "all_tested": [
+          {
+            "selector": "div.msg-form__contenteditable[contenteditable='true']",
+            "count": 1
+          },
+          {
+            "selector": "div[role='textbox'][aria-label*='message' i]",
+            "count": 1
+          },
+          {
+            "selector": "div[contenteditable='true'][role='textbox']",
+            "count": 1
+          },
+          {
+            "selector": "div[contenteditable='true']",
+            "count": 1
+          }
+        ],
+        "samples": [
+          {
+            "index": 0,
+            "tag": "DIV",
+            "role": "textbox",
+            "aria": "Write a message\u2026",
+            "class": "msg-form__contenteditable t-14 t-black--light t-normal flex-",
+            "text": ""
+          }
+        ]
+      },
+      "chat_history_items": {
+        "best_selector": "li.msg-s-message-list__event",
+        "best_count": 12,
+        "all_tested": [
+          {
+            "selector": "li.msg-s-message-list__event",
+            "count": 12
+          },
+          {
+            "selector": "div.msg-s-event-listitem",
+            "count": 12
+          }
+        ],
+        "samples": [
+          {
+            "index": 0,
+            "tag": "LI",
+            "role": "",
+            "aria": "",
+            "class": "msg-s-message-list__event clearfix\n              \n          ",
+            "text": "MAY 21 Kumar RM sent the following message at 5:02 PM View Kumar\u2019s profile Kumar RM   5:02 PM  Hi Ka"
+          },
+          {
+            "index": 1,
+            "tag": "LI",
+            "role": "",
+            "aria": "",
+            "class": "msg-s-message-list__event clearfix\n              \n          ",
+            "text": "MAY 22 KARANBIR SINGH sent the following message at 12:34 AM View KARANBIR\u2019s profile KARANBIR SINGH "
+          }
+        ]
+      },
+      "sender_names_in_chat": {
+        "best_selector": "span.msg-s-message-group__name",
+        "best_count": 12,
+        "all_tested": [
+          {
+            "selector": "span.msg-s-message-group__name",
+            "count": 12
+          }
+        ],
+        "samples": [
+          {
+            "index": 0,
+            "tag": "SPAN",
+            "role": "",
+            "aria": "",
+            "class": "msg-s-message-group__profile-link msg-s-message-group__name ",
+            "text": "Kumar RM"
+          },
+          {
+            "index": 1,
+            "tag": "SPAN",
+            "role": "",
+            "aria": "",
+            "class": "msg-s-message-group__profile-link msg-s-message-group__name ",
+            "text": "KARANBIR SINGH"
+          }
+        ]
+      },
+      "message_bubbles": {
+        "best_selector": "div.msg-s-event-listitem__message-bubble",
+        "best_count": 13,
+        "all_tested": [
+          {
+            "selector": "p.msg-s-event-listitem__body",
+            "count": 12
+          },
+          {
+            "selector": "div.msg-s-event-listitem__message-bubble",
+            "count": 13
+          }
+        ],
+        "samples": [
+          {
+            "index": 0,
+            "tag": "DIV",
+            "role": "",
+            "aria": "",
+            "class": "msg-s-event-listitem__message-bubble msg-s-event-listitem__m",
+            "text": "Hi Karanbir,  Namaskar Sir ! Hope your doing good..  At Enrichexpert, we provide the core valves for"
+          },
+          {
+            "index": 1,
+            "tag": "DIV",
+            "role": "",
+            "aria": "",
+            "class": "msg-s-event-listitem__message-bubble msg-s-event-listitem__m",
+            "text": "Home enrichexpert.com"
+          }
+        ]
+      },
+      "send_button": {
+        "best_selector": "button.msg-form__send-button",
+        "best_count": 1,
+        "all_tested": [
+          {
+            "selector": "button.msg-form__send-button",
+            "count": 1
+          },
+          {
+            "selector": "button[type='submit'][class*='msg-form']",
+            "count": 1
+          }
+        ],
+        "samples": [
+          {
+            "index": 0,
+            "tag": "BUTTON",
+            "role": "",
+            "aria": "",
+            "class": "msg-form__send-button artdeco-button artdeco-button--1",
+            "text": "Send"
+          }
+        ]
+      }
+    }
+  },
+  "gemini_web": {
+    "url": "https://gemini.google.com/app",
+    "title": "Google Gemini",
+    "selectors": {
+      "prompt_editor": {
+        "best_selector": "div[contenteditable='true']",
+        "best_count": 2,
+        "all_tested": [
+          {
+            "selector": ".ql-editor",
+            "count": 1
+          },
+          {
+            "selector": "div[contenteditable='true'][role='textbox']",
+            "count": 1
+          },
+          {
+            "selector": "div[contenteditable='true']",
+            "count": 2
+          },
+          {
+            "selector": "rich-textarea div[contenteditable='true']",
+            "count": 2
+          }
+        ],
+        "samples": [
+          {
+            "index": 0,
+            "tag": "DIV",
+            "role": "textbox",
+            "aria": "Enter a prompt for Gemini",
+            "class": "ql-editor ql-blank textarea new-input-ui",
+            "text": ""
+          },
+          {
+            "index": 1,
+            "tag": "DIV",
+            "role": "",
+            "aria": "",
+            "class": "ql-clipboard",
+            "text": ""
+          }
+        ]
+      },
+      "file_inputs": {
+        "best_selector": null,
+        "best_count": 0,
+        "all_tested": [],
+        "samples": []
+      },
+      "attachment_buttons": {
+        "best_selector": "button[aria-label*='Upload' i]",
+        "best_count": 1,
+        "all_tested": [
+          {
+            "selector": "button[aria-label*='Upload' i]",
+            "count": 1
+          }
+        ],
+        "samples": [
+          {
+            "index": 0,
+            "tag": "BUTTON",
+            "role": "",
+            "aria": "Upload & tools",
+            "class": "mdc-icon-button mat-mdc-icon-button mat-mdc-button-base mat-",
+            "text": ""
+          }
+        ]
+      },
+      "model_responses": {
+        "best_selector": null,
+        "best_count": 0,
+        "all_tested": [],
+        "samples": []
+      },
+      "send_button": {
+        "best_selector": null,
+        "best_count": 0,
+        "all_tested": [],
+        "samples": []
+      },
+      "sign_in_buttons": {
+        "best_selector": "button:has-text('Sign in')",
+        "best_count": 2,
+        "all_tested": [
+          {
+            "selector": "a[href*='accounts.google.com/ServiceLogin']",
+            "count": 1
+          },
+          {
+            "selector": "button:has-text('Sign in')",
+            "count": 2
+          },
+          {
+            "selector": "a:has-text('Sign in')",
+            "count": 2
+          }
+        ],
+        "samples": [
+          {
+            "index": 0,
+            "tag": "BUTTON",
+            "role": "",
+            "aria": "",
+            "class": "mdc-button mat-mdc-button-base mat-badge mat-tonal-button ma",
+            "text": "Sign in"
+          },
+          {
+            "index": 1,
+            "tag": "BUTTON",
+            "role": "",
+            "aria": "",
+            "class": "mdc-button mat-mdc-button-base mat-badge mat-tonal-button ma",
+            "text": "Sign in"
+          }
+        ]
+      }
+    }
+  }
+}
