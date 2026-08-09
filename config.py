@@ -19,13 +19,16 @@ class Settings(BaseModel):
     gemini_api_key: str = Field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
     
     # LinkedIn Automation Settings
+    user_data_dir: Path = BASE_DIR / "user_data"
     linkedin_user_data_dir: Path = BASE_DIR / "user_data"
     linkedin_username: str = Field(default_factory=lambda: os.getenv("LINKEDIN_USERNAME", ""))
     linkedin_password: str = Field(default_factory=lambda: os.getenv("LINKEDIN_PASSWORD", ""))
     gemini_google_email: str = Field(default_factory=lambda: os.getenv("GEMINI_GOOGLE_EMAIL", ""))
     gemini_google_password: str = Field(default_factory=lambda: os.getenv("GEMINI_GOOGLE_PASSWORD", ""))
 
-    # X.com curation enhancements
+    # X.com Curation Settings
+    x_username: str = Field(default_factory=lambda: os.getenv("X_USERNAME", ""))
+    x_password: str = Field(default_factory=lambda: os.getenv("X_PASSWORD", ""))
     min_likes: int = 50
     min_retweets: int = 10
     min_engagement_score: int = 100
