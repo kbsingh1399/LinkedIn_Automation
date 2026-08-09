@@ -285,7 +285,10 @@ class LinkedInPublisher:
 
             if editor:
                 await editor.focus()
-                await editor.fill(post_text)
+                await page.wait_for_timeout(500)
+                print(" ├── Typing post copy with humanized keystroke dynamics...")
+                from utils.playwright_utils import PlaywrightResilience
+                await PlaywrightResilience.human_type_with_mistakes(page, editor, post_text)
                 await page.wait_for_timeout(2000)
 
             # 4. Click Post button
