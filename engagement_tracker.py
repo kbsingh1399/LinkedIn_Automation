@@ -15,6 +15,7 @@ COOLDOWN = {
     "feed_comment":       7 * 24 * 3600,   # 7 days  -- same post
     "notification_reply": 3 * 24 * 3600,   # 3 days  -- same notification
     "inbox_reply":        1 * 24 * 3600,   # 1 day   -- same DM partner
+    "connection_request": 30 * 24 * 3600,  # 30 days -- same member
 }
 
 
@@ -106,6 +107,7 @@ DAILY_CAPS = {
     "feed_comment": 20,
     "notification_reply": 20,
     "inbox_reply": 25,
+    "connection_request": 20,
 }
 
 TXT_TRACKER_PATH = Path(__file__).parent / "daily_engagement_tracker.txt"
@@ -149,7 +151,11 @@ def update_daily_tracker_file() -> None:
     inbox_cap = DAILY_CAPS["inbox_reply"]
     inbox_left = max(0, inbox_cap - inbox_done)
 
-    status_text = "ACTIVE (Within Safe Daily Caps)" if (feed_left > 0 or notif_left > 0 or inbox_left > 0) else "ALL DAILY CAPS COMPLETED TILL MIDNIGHT"
+    conn_done = get_today_count("connection_request")
+    conn_cap = DAILY_CAPS["connection_request"]
+    conn_left = max(0, conn_cap - conn_done)
+
+    status_text = "ACTIVE (Within Safe Daily Caps)" if (feed_left > 0 or notif_left > 0 or inbox_left > 0 or conn_left > 0) else "ALL DAILY CAPS COMPLETED TILL MIDNIGHT"
 
     content = f"""====================================================
 LINKEDIN AUTOMATION - DAILY TRACKER ({today_str})
@@ -167,6 +173,10 @@ Last Updated: {timestamp_str}
 • Inbox DM Replies:
   - Done Today: {inbox_done} / {inbox_cap}
   - Remaining:  {inbox_left}
+
+• Connection Requests:
+  - Done Today: {conn_done} / {conn_cap}
+  - Remaining:  {conn_left}
 
 STATUS: {status_text}
 ====================================================

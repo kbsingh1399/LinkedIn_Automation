@@ -11,6 +11,7 @@ from linkedin_publisher import LinkedInPublisher
 from linkedin_feed import LinkedInFeedEngine
 from linkedin_notifications import LinkedInNotificationsEngine
 from linkedin_inbox import LinkedInInboxEngine
+from linkedin_network import LinkedInNetworkEngine
 from utils.playwright_utils import PlaywrightResilience
 from engagement_tracker import clear_old_records
 
@@ -136,6 +137,13 @@ class LinkedInAutoAgent:
                 if mode in ["inbox", "all"]:
                     inbox = LinkedInInboxEngine(page=page, preproduction=preproduction)
                     await inbox.process_top_20_messages()
+
+                # Random reading pause before network growth module
+                await asyncio.sleep(random.uniform(2.0, 4.0))
+
+                if mode in ["network", "all"]:
+                    net = LinkedInNetworkEngine(page=page, preproduction=preproduction)
+                    await net.process_connection_requests(max_requests=15)
 
                 # Occasional page refresh & mouse scroll jitter
                 await PlaywrightResilience.occasional_page_refresh(page, 0.22)
