@@ -133,11 +133,6 @@ class LinkedInInboxEngine:
                         
                     await card.click()
                     await asyncio.sleep(random.uniform(1.8, 3.0))
-
-                    # Dedup: skip if already replied to this partner within 1 day
-                    if already_engaged("inbox_reply", partner):
-                        print(f"  [SKIP] Already replied to {partner} within 24h. Skipping.")
-                        continue
                 else:
                     partner = "Current Thread"
 
@@ -167,6 +162,12 @@ class LinkedInInboxEngine:
                 last_msg_lower = history_lines[-1].lower() if history_lines else ""
                 if any(last_msg_lower.startswith(n) for n in my_names):
                     print(f"⏩ [Inbox #{idx}] Last message in thread with {partner} was sent by us. Waiting for their reply. Skipping.")
+                    continue
+
+                # Dedup check based on partner's latest message content so multi-turn replies work when they respond
+                latest_partner_msg_key = f"{partner}:{history_lines[-1][:150]}" if history_lines else partner
+                if already_engaged("inbox_reply", latest_partner_msg_key):
+                    print(f"  [SKIP] Already replied to latest message from {partner} within 24h. Skipping.")
                     continue
 
                 # Step 7.2 Verification: Take screenshot of active chat extracted
@@ -227,7 +228,7 @@ class LinkedInInboxEngine:
                                 await self.page.screenshot(path="step7_3_reply_sent.png")
                                 print(f"[{len(processed)+1:02d}] ✅ Reply sent to {partner}")
                                 processed.append({"partner_name": partner, "reply": ai_reply})
-                                mark_engaged("inbox_reply", partner)
+                                mark_engaged("inbox_reply", latest_partner_msg_key)
                             else:
                                 print(f"⚠️ Send btn not ready (visible={is_vis}, disabled={is_dis}) — skipping")
 
