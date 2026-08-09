@@ -211,31 +211,12 @@ class LinkedInPublisher:
 
             await page.wait_for_timeout(3000)
 
-            # 2. Upload ALL media files if present
+            # 2. Upload ALL media files directly via input[type='file'] (Prevents OS File Chooser Dialog Popup)
             if valid_media:
                 print(f" ├── Attaching {len(valid_media)} media asset(s): {[f.name for f in valid_media]} ...")
-                
-                # Try clicking 'Add media' / 'Add a photo' icon inside post modal
-                media_btn_selectors = [
-                    "button[aria-label*='media']",
-                    "button[aria-label*='photo']",
-                    "button[aria-label*='Photo']",
-                    "button.share-promoted-detour-button",
-                    "button:has-text('Add media')",
-                    "button:has-text('Media')"
-                ]
-                for m_sel in media_btn_selectors:
-                    try:
-                        m_btn = await page.query_selector(m_sel)
-                        if m_btn and await m_btn.is_visible():
-                            await m_btn.click(force=True)
-                            print(f" └── Clicked media trigger icon using selector: {m_sel}")
-                            await page.wait_for_timeout(2000)
-                            break
-                    except Exception:
-                        continue
+                media_paths = [str(f.resolve()) for f in valid_media]
 
-                # Locate file input element and upload all media paths simultaneously
+                # Locate hidden/visible file input element directly in modal DOM
                 file_input = await page.query_selector("input[type='file']")
                 if not file_input:
                     file_inputs = await page.query_selector_all("input[type='file']")
@@ -243,9 +224,8 @@ class LinkedInPublisher:
                         file_input = file_inputs[0]
 
                 if file_input:
-                    media_paths = [str(f.resolve()) for f in valid_media]
                     await file_input.set_input_files(media_paths)
-                    print(f" └── Successfully attached all {len(valid_media)} file inputs simultaneously!")
+                    print(f" └── Successfully attached all {len(valid_media)} media files headlessly (No OS dialog popup)!")
                     await page.wait_for_timeout(4000)
 
                     # Click 'Next' or 'Done' on media editor modal if presented
