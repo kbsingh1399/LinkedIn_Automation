@@ -35,8 +35,14 @@ class GeminiAIClient:
                 print("❌ [GEMINI WEB] Email input field not found.")
                 return False
 
+            email = os.getenv("GEMINI_GOOGLE_EMAIL", "")
+            password = os.getenv("GEMINI_GOOGLE_PASSWORD", "")
+            if not email or not password:
+                print("⚠️ [GEMINI WEB] GEMINI_GOOGLE_EMAIL or GEMINI_GOOGLE_PASSWORD env variables not set.")
+                return False
+
             await email_input.focus()
-            await email_input.fill("gabrumusic.official@gmail.com")
+            await email_input.fill(email)
             await asyncio.sleep(1.5)
 
             next_btn = await page.query_selector('#identifierNext, button:has-text("Next"), button:has-text("Siguiente")')
@@ -52,7 +58,7 @@ class GeminiAIClient:
                 return False
 
             await password_input.focus()
-            await password_input.fill("Lu$er2hero")
+            await password_input.fill(password)
             await asyncio.sleep(1.5)
 
             next_pwd_btn = await page.query_selector('#passwordNext, button:has-text("Next"), button:has-text("Siguiente")')
