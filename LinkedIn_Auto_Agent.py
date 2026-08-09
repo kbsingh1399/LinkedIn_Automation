@@ -40,123 +40,132 @@ class LinkedInAutoAgent:
         debug_port = find_free_port(9222)
         print(f"🔌 [CDP] Using dynamic debug port: {debug_port}")
 
-        async with async_playwright() as p:
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=str(publisher.user_data_dir),
-                channel="chrome",
-                headless=headless,
-                viewport={"width": 1440, "height": 900},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-infobars",
-                    "--test-type",
-                    f"--remote-debugging-port={debug_port}",
-                    "--remote-debugging-address=127.0.0.1",
-                    "--disable-background-timer-throttling",
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding",
-                ],
-            )
-            page = context.pages[0] if context.pages else await context.new_page()
+        context = None
+        try:
+            async with async_playwright() as p:
+                context = await p.chromium.launch_persistent_context(
+                    user_data_dir=str(publisher.user_data_dir),
+                    channel="chrome",
+                    headless=headless,
+                    viewport={"width": 1440, "height": 900},
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                        "--disable-infobars",
+                        "--test-type",
+                        f"--remote-debugging-port={debug_port}",
+                        "--remote-debugging-address=127.0.0.1",
+                        "--disable-background-timer-throttling",
+                        "--disable-backgrounding-occluded-windows",
+                        "--disable-renderer-backgrounding",
+                    ],
+                )
+                page = context.pages[0] if context.pages else await context.new_page()
 
-            logged_in = await publisher.ensure_logged_in(page)
-            if not logged_in:
-                print("❌ Login failed. Skipping cycle.")
-                await context.close()
-                return
+                logged_in = await publisher.ensure_logged_in(page)
+                if not logged_in:
+                    print("❌ Login failed. Skipping cycle.")
+                    return
 
-            # P0-2: Purge stale engagement records to keep DB lean
-            deleted = clear_old_records()
-            if deleted:
-                print(f"🗑️ [DB Cleanup] Purged {deleted} stale engagement records.")
+                # P0-2: Purge stale engagement records to keep DB lean
+                deleted = clear_old_records()
+                if deleted:
+                    print(f"🗑️ [DB Cleanup] Purged {deleted} stale engagement records.")
 
-            # Security Checkpoint Gate: Pause execution if CAPTCHA or verification challenge appears
-            if await PlaywrightResilience.verify_security_checkpoint(page):
-                print("🚨 Security checkpoint gate triggered. Pausing cycle to protect account.")
-                await context.close()
-                return
+                # Security Checkpoint Gate: Pause execution if CAPTCHA or verification challenge appears
+                if await PlaywrightResilience.verify_security_checkpoint(page):
+                    print("🚨 Security checkpoint gate triggered. Pausing cycle to protect account.")
+                    return
 
-            # Overlay Dismissal Gate: Clear popups or cookie banners before proceeding
-            await PlaywrightResilience.dismiss_blocking_overlays(page)
+                # Overlay Dismissal Gate: Clear popups or cookie banners before proceeding
+                await PlaywrightResilience.dismiss_blocking_overlays(page)
 
-            # Auto-close any unwanted secondary tabs opened by external links
-            for p in context.pages[1:]:
-                if not p.is_closed():
-                    try:
-                        print(f"🧹 [Tab Safety] Closing unwanted auxiliary tab: {p.url}")
-                        await p.close()
-                    except Exception:
-                        pass
-            await page.bring_to_front()
+                # Auto-close any unwanted secondary tabs opened by external links
+                for p_tab in context.pages[1:]:
+                    if not p_tab.is_closed():
+                        try:
+                            print(f"🧹 [Tab Safety] Closing unwanted auxiliary tab: {p_tab.url}")
+                            await p_tab.close()
+                        except Exception:
+                            pass
+                await page.bring_to_front()
 
-            # Occasional viewport resize
-            await PlaywrightResilience.random_viewport_resize(page, context)
+                # Occasional viewport resize
+                await PlaywrightResilience.random_viewport_resize(page, context)
 
-            if mode in ["feed", "all"]:
-                # Jitter ±15% of max_feed per cycle for anti-bot unpredictability.
-                std = max(0.5, max_feed * 0.15)
-                cycle_max_feed = max(max_feed, int(round(random.gauss(max_feed, std))))
-                print(f"📊 [Anti-Bot Stealth] Target for Cycle #{cycle_num}: {cycle_max_feed} feed posts (base setting: {max_feed})")
-                feed = LinkedInFeedEngine(page=page, preproduction=preproduction)
-                await feed.process_feed_posts(cycle_max_feed)
+                if mode in ["feed", "all"]:
+                    # Jitter ±15% of max_feed per cycle for anti-bot unpredictability.
+                    std = max(0.5, max_feed * 0.15)
+                    cycle_max_feed = max(max_feed, int(round(random.gauss(max_feed, std))))
+                    print(f"📊 [Anti-Bot Stealth] Target for Cycle #{cycle_num}: {cycle_max_feed} feed posts (base setting: {max_feed})")
+                    feed = LinkedInFeedEngine(page=page, preproduction=preproduction)
+                    await feed.process_feed_posts(cycle_max_feed)
 
-            # Close any unwanted tabs that opened during feed processing
-            for p in context.pages[1:]:
-                if not p.is_closed():
-                    try:
-                        print(f"🧹 [Tab Safety] Closing unwanted auxiliary tab: {p.url}")
-                        await p.close()
-                    except Exception:
-                        pass
-            await page.bring_to_front()
+                # Close any unwanted tabs that opened during feed processing
+                for p_tab in context.pages[1:]:
+                    if not p_tab.is_closed():
+                        try:
+                            print(f"🧹 [Tab Safety] Closing unwanted auxiliary tab: {p_tab.url}")
+                            await p_tab.close()
+                        except Exception:
+                            pass
+                await page.bring_to_front()
 
-            # P1-2: Mid-cycle security checkpoint gate
-            await PlaywrightResilience.dismiss_blocking_overlays(page)
-            if await PlaywrightResilience.verify_security_checkpoint(page):
-                print("🚨 [Mid-Cycle] Security checkpoint detected after Feed. Halting.")
-                await context.close()
-                return
+                # P1-2: Mid-cycle security checkpoint gate
+                await PlaywrightResilience.dismiss_blocking_overlays(page)
+                if await PlaywrightResilience.verify_security_checkpoint(page):
+                    print("🚨 [Mid-Cycle] Security checkpoint detected after Feed. Halting.")
+                    return
 
-            # Random reading pause between modules
-            await asyncio.sleep(random.uniform(2.5, 6.0))
+                # Random reading pause between modules
+                await asyncio.sleep(random.uniform(2.5, 6.0))
 
-            if mode in ["notifications", "all"]:
-                notif = LinkedInNotificationsEngine(page=page, preproduction=preproduction)
-                await notif.process_top_20_notifications()
+                if mode in ["notifications", "all"]:
+                    notif = LinkedInNotificationsEngine(page=page, preproduction=preproduction)
+                    await notif.process_top_20_notifications()
 
-            # P1-2: Mid-cycle security checkpoint gate
-            await PlaywrightResilience.dismiss_blocking_overlays(page)
-            if await PlaywrightResilience.verify_security_checkpoint(page):
-                print("🚨 [Mid-Cycle] Security checkpoint detected after Notifications. Halting.")
-                await context.close()
-                return
+                # P1-2: Mid-cycle security checkpoint gate
+                await PlaywrightResilience.dismiss_blocking_overlays(page)
+                if await PlaywrightResilience.verify_security_checkpoint(page):
+                    print("🚨 [Mid-Cycle] Security checkpoint detected after Notifications. Halting.")
+                    return
 
-            # Random reading pause between modules
-            await asyncio.sleep(random.uniform(2.0, 5.0))
+                # Random reading pause between modules
+                await asyncio.sleep(random.uniform(2.0, 5.0))
 
-            if mode in ["inbox", "all"]:
-                inbox = LinkedInInboxEngine(page=page, preproduction=preproduction)
-                await inbox.process_top_20_messages()
+                if mode in ["inbox", "all"]:
+                    inbox = LinkedInInboxEngine(page=page, preproduction=preproduction)
+                    await inbox.process_top_20_messages()
 
-            # Occasional page refresh & mouse scroll jitter
-            await PlaywrightResilience.occasional_page_refresh(page, 0.22)
-            await self._simulate_distraction(context)
+                # Occasional page refresh & mouse scroll jitter
+                await PlaywrightResilience.occasional_page_refresh(page, 0.22)
+                await self._simulate_distraction(context)
 
-            print("✅ Cycle completed. Chrome tabs kept open.")
+                print("✅ Cycle completed cleanly.")
 
-    async def run_forever(self, mode: str, max_feed: int, headless: bool, preproduction: bool, interval: int):
-        print(f"🚀 Starting continuous loop with humanized anti-bot randomness (base interval: {interval}s)")
+        except Exception as cycle_err:
+            print(f"⚠️ [Cycle Error] Exception in cycle #{cycle_num}: {cycle_err}")
+            print("   Attempting graceful recovery for next cycle...")
+
+        finally:
+            if context:
+                try:
+                    await context.close()
+                except Exception:
+                    pass
+
+    async def run_forever(self, mode: str, max_feed: int, headless: bool, preproduction: bool, interval: int, max_cycles: int = 100):
+        print(f"🚀 Starting continuous loop with humanized anti-bot randomness (base interval: {interval}s, max cycles: {max_cycles})")
         cycle = 0
 
-        while self.running:
+        while self.running and cycle < max_cycles:
             cycle += 1
             try:
                 await self.run_cycle(mode, max_feed, headless, preproduction, cycle_num=cycle)
             except Exception as e:
-                print(f"⚠️ Cycle error: {e}")
+                print(f"⚠️ Top-level cycle failure recovery: {e}")
 
-            if not self.running:
+            if not self.running or cycle >= max_cycles:
                 break
 
             # 35% chance of an extended human distraction break (e.g. coffee / tab switch)
