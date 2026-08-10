@@ -113,6 +113,10 @@ class LinkedInAutoAgent:
         # Occasional page refresh & mouse scroll jitter
         await PlaywrightResilience.occasional_page_refresh(page, 0.22)
         await self._simulate_distraction(context)
+        
+        # Navigate back to LinkedIn Feed to idle natively during the rest window
+        print("🏠 Navigating back to LinkedIn Feed for the rest window...")
+        await PlaywrightResilience.safe_goto(page, "https://www.linkedin.com/feed/")
 
         print(f"✅ Cycle #{cycle_num} completed cleanly.")
 
@@ -204,7 +208,7 @@ class LinkedInAutoAgent:
 
                 try:
                     publisher = LinkedInPublisher(headless=False)
-                    res = await publisher.publish_post_option(target_option, dry_run=preproduction)
+                    res = await publisher.publish_post_option(target_option, page=page, dry_run=preproduction)
                     if res:
                         mark_engaged("publisher_slot", slot_key)
                         mark_engaged("published_option", str(target_option.resolve()))
