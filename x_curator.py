@@ -10,7 +10,7 @@ from config import settings
 class XCurator:
     def __init__(self, headless: bool = False):
         self.headless = headless
-        self.user_data_dir = settings.user_data_dir
+        self.user_data_dir = settings.x_user_data_dir
 
     async def perform_automated_x_login(self, page) -> bool:
         """Automated X.com login sequence using credentials from .env."""
@@ -72,15 +72,13 @@ class XCurator:
         self.user_data_dir.mkdir(parents=True, exist_ok=True)
         posts = []
 
+        from utils.stealth_chrome import launch_stealth_chrome
         async with async_playwright() as p:
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=str(self.user_data_dir),
-                headless=self.headless,
-                viewport={"width": 1280, "height": 850},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=["--disable-blink-features=AutomationControlled"]
+            context, page = await launch_stealth_chrome(
+                p,
+                profile="x",
+                user_data_dir=self.user_data_dir,
             )
-            page = context.pages[0] if context.pages else await context.new_page()
 
             # Ensure logged in
             try:

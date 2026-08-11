@@ -13,6 +13,7 @@ from linkedin_notifications import LinkedInNotificationsEngine
 from linkedin_inbox import LinkedInInboxEngine
 from linkedin_network import LinkedInNetworkEngine
 from utils.playwright_utils import PlaywrightResilience
+from utils.stealth_chrome import launch_stealth_chrome, close_auxiliary_tabs, clear_stale_locks
 from engagement_tracker import clear_old_records
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -48,15 +49,8 @@ class LinkedInAutoAgent:
         # Overlay Dismissal Gate: Clear popups or cookie banners before proceeding
         await PlaywrightResilience.dismiss_blocking_overlays(page)
 
-        # Auto-close any unwanted secondary tabs opened by external links
-        for p_tab in context.pages[1:]:
-            if not p_tab.is_closed():
-                try:
-                    print(f"🧹 [Tab Safety] Closing unwanted auxiliary tab: {p_tab.url}")
-                    await p_tab.close()
-                except Exception:
-                    pass
-        await page.bring_to_front()
+        # Auto-close extra tabs but never the pinned Gemini worker tab
+        await close_auxiliary_tabs(context, keep_page=page)
 
         # Occasional viewport resize
         await PlaywrightResilience.random_viewport_resize(page, context)
@@ -68,15 +62,8 @@ class LinkedInAutoAgent:
             feed = LinkedInFeedEngine(page=page, preproduction=preproduction)
             await feed.process_feed_posts(cycle_max_feed)
 
-        # Close any unwanted tabs that opened during feed processing
-        for p_tab in context.pages[1:]:
-            if not p_tab.is_closed():
-                try:
-                    print(f"🧹 [Tab Safety] Closing unwanted auxiliary tab: {p_tab.url}")
-                    await p_tab.close()
-                except Exception:
-                    pass
-        await page.bring_to_front()
+        # Close extra tabs that opened during feed processing; keep Gemini pinned
+        await close_auxiliary_tabs(context, keep_page=page)
 
         # Mid-cycle security checkpoint gate
         await PlaywrightResilience.dismiss_blocking_overlays(page)
@@ -192,7 +179,8 @@ class LinkedInAutoAgent:
             if already_engaged("publisher_slot", slot_key):
                 continue
 
-            if now.hour >= slot["hour"] and unpublished_options:
+            # 2-hour window only — never burst all overdue slots at 21:00
+            if slot["hour"] <= now.hour < slot["hour"] + 2 and unpublished_options:
                 # Rank unpublished options by slot relevance + engagement score
                 ranked_options = sorted(
                     unpublished_options,
@@ -209,46 +197,31 @@ class LinkedInAutoAgent:
                 try:
                     publisher = LinkedInPublisher(headless=False)
                     res = await publisher.publish_post_option(target_option, page=page, dry_run=preproduction)
-                    if res:
+                    if res and not preproduction:
                         mark_engaged("publisher_slot", slot_key)
                         mark_engaged("published_option", str(target_option.resolve()))
                         print(f"✅ Slot #{slot['slot_num']} successfully published post: {target_option.name}!")
+                    elif res and preproduction:
+                        print(f"🧪 [PREPROD] Slot #{slot['slot_num']} would publish {target_option.name} — ledger not marked.")
                 except Exception as pub_err:
                     print(f"⚠️ Failed to publish Slot #{slot['slot_num']}: {pub_err}")
 
     async def run_cycle(self, mode: str, max_feed: int, headless: bool, preproduction: bool, cycle_num: int = 1):
-        publisher = LinkedInPublisher(headless=headless)
+        publisher = LinkedInPublisher(headless=False)
         from config import find_free_port
         debug_port = find_free_port(19001)
+        if headless:
+            print("⚠️ [Stealth] --headless ignored. Chrome stays visible.")
 
-        lock_file = publisher.user_data_dir / "SingletonLock"
-        for _ in range(5):
-            if lock_file.exists():
-                try:
-                    lock_file.unlink()
-                    break
-                except Exception:
-                    await asyncio.sleep(0.5)
+        clear_stale_locks(publisher.user_data_dir)
 
         async with async_playwright() as p:
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=str(publisher.user_data_dir),
-                channel="chrome",
-                headless=headless,
-                viewport={"width": 1440, "height": 900},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-infobars",
-                    "--test-type",
-                    f"--remote-debugging-port={debug_port}",
-                    "--remote-debugging-address=127.0.0.1",
-                    "--disable-background-timer-throttling",
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding",
-                ],
+            context, page = await launch_stealth_chrome(
+                p,
+                profile="linkedin",
+                user_data_dir=publisher.user_data_dir,
+                debug_port=debug_port,
             )
-            page = context.pages[0] if context.pages else await context.new_page()
 
             logged_in = await publisher.ensure_logged_in(page)
             if not logged_in:
@@ -261,10 +234,12 @@ class LinkedInAutoAgent:
         print(f"🚀 Starting persistent single-instance Chrome loop (base interval: {interval}s, max cycles: {max_cycles})")
         cycle = 0
 
-        publisher = LinkedInPublisher(headless=headless)
+        publisher = LinkedInPublisher(headless=False)
         from config import find_free_port
         import subprocess
         debug_port = find_free_port(19001)
+        if headless:
+            print("⚠️ [Stealth] --headless ignored. Chrome stays visible.")
 
         # Surgically kill ONLY the Chrome instance using our specific user_data_dir.
         # This leaves all other Chrome browser windows on the machine completely untouched.
@@ -277,34 +252,15 @@ class LinkedInAutoAgent:
         subprocess.run(["powershell", "-Command", ps_kill_script], capture_output=True)
         await asyncio.sleep(1.5)
 
-        # Clean stale profile lock files left by the killed process
-        for lock_name in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
-            sf = publisher.user_data_dir / lock_name
-            if sf.exists():
-                try:
-                    sf.unlink()
-                except Exception:
-                    pass
+        clear_stale_locks(publisher.user_data_dir)
 
         async with async_playwright() as p:
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=str(publisher.user_data_dir),
-                channel="chrome",
-                headless=headless,
-                viewport={"width": 1440, "height": 900},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-infobars",
-                    "--test-type",
-                    f"--remote-debugging-port={debug_port}",
-                    "--remote-debugging-address=127.0.0.1",
-                    "--disable-background-timer-throttling",
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding",
-                ],
+            context, page = await launch_stealth_chrome(
+                p,
+                profile="linkedin",
+                user_data_dir=publisher.user_data_dir,
+                debug_port=debug_port,
             )
-            page = context.pages[0] if context.pages else await context.new_page()
 
             logged_in = await publisher.ensure_logged_in(page)
             if not logged_in:

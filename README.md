@@ -21,18 +21,20 @@ Install required dependencies:
 
 ```bash
 pip install -r requirements.txt
-playwright install chromium
+playwright install chrome
 ```
 
-### 2. Set Up API Key (Optional for AI Rewriting)
+Install **Google Chrome** (not raw Chromium). Launchers use `channel="chrome"` with a visible window.
 
-Set your Gemini API key:
+### 2. Gemini is web-only
 
-```powershell
-$env:GEMINI_API_KEY="your-gemini-api-key"
-```
+Comments, replies, and post rewrites go through `gemini.google.com` in the persistent LinkedIn Chrome profile. There is **no API key path**. Log into Gemini once in that profile; the session persists.
 
-*(If omitted, the built-in structured template rewriter will be used as a fallback)*
+Chrome profiles are split:
+- LinkedIn + Gemini: `user_data/linkedin` (legacy `user_data/` is reused if it already has a logged-in session)
+- X.com curation: `user_data/x`
+
+The agent defaults to dry-run. Pass `--live` to actually comment, reply, or publish.
 
 ---
 

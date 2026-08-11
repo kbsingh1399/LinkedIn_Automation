@@ -1,22 +1,22 @@
-import os
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+
+from gemini_ai import GeminiAIClient
+
 
 class LinkedInRewriter:
-    def __init__(self, api_key: str = None):
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY", "")
+    """Web-Gemini rewriter. No API keys — ever."""
 
-    def rewrite_for_linkedin(self, post_data: Dict[str, Any]) -> str:
+    def __init__(self, api_key: str = None):
+        # api_key accepted only for backward-compatible call sites; ignored.
+        self.ai = GeminiAIClient()
+
+    def _build_prompt(self, post_data: Dict[str, Any]) -> str:
         raw_text = post_data.get("raw_text", "")
         topic = post_data.get("topic", "Tech & Innovation")
         user = post_data.get("user", "Industry Insight")
         likes = post_data.get("likes", 0)
         retweets = post_data.get("retweets", 0)
-
-        if self.api_key:
-            try:
-                from google import genai
-                client = genai.Client(api_key=self.api_key)
-                prompt = f"""
+        return f"""
 You are an expert LinkedIn ghostwriter specializing in viral, high-converting posts for {topic}.
 
 Rewrite the following tweet into a professional, engagement-optimized LinkedIn post.
@@ -29,7 +29,7 @@ Original Text:
 \"\"\"
 
 CRITICAL REQUIREMENTS FOR VIRAL HOOKS & INDUSTRY FORMATTING:
-1. **Viral Hook Styles** (choose one fitting the content): 
+1. **Viral Hook Styles** (choose one fitting the content):
    - Bold Question Hook: "What if [surprising insight]?"
    - Contrarian/Controversial Hook: "Most people get [topic] wrong..."
    - Story Hook: "Last week I discovered..."
@@ -43,20 +43,13 @@ CRITICAL REQUIREMENTS FOR VIRAL HOOKS & INDUSTRY FORMATTING:
 
 Output ONLY the full rewritten post text. No intro, no code blocks, no extra explanations.
 """
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=prompt
-                )
-                if response and response.text:
-                    return response.text.strip()
-            except Exception as e:
-                print(f"[LinkedInRewriter] Gemini API call failed: {e}. Falling back to enhanced template rewriter.")
 
-        # Enhanced Fallback Template Rewriter with viral hooks and industry formatting
+    def _template_rewrite(self, post_data: Dict[str, Any]) -> str:
+        raw_text = post_data.get("raw_text", "")
+        topic = post_data.get("topic", "Tech & Innovation")
         lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
         first_line = lines[0] if lines else raw_text[:80]
 
-        # Generate viral-style hooks
         hook_styles = [
             f"What if the key to mastering {topic} isn't what you think?",
             f"Most professionals completely misunderstand {topic} — here's the truth.",
@@ -69,7 +62,6 @@ Output ONLY the full rewritten post text. No intro, no code blocks, no extra exp
         body_lines = lines[1:6] if len(lines) > 1 else [raw_text]
         body = "\n\n".join(body_lines)
 
-        # Industry-specific formatting with actionable bullets
         hashtag_slug = "".join(e for e in topic if e.isalnum()).lower()
         industry_hashtags = {
             "aiautomation": "#AIAutomation #FutureOfWork",
@@ -95,3 +87,20 @@ Output ONLY the full rewritten post text. No intro, no code blocks, no extra exp
 What’s the #1 challenge you’re facing with {topic} right now? Drop it in the comments — let’s solve it together! 👇
 
 {hashtags}"""
+
+    async def rewrite_for_linkedin(self, post_data: Dict[str, Any], page=None) -> str:
+        """Rewrite via Gemini web when a page is available. Template fallback only — never an API key."""
+        if page:
+            try:
+                result = await self.ai.generate_content(self._build_prompt(post_data), page=page)
+                if result:
+                    return result.strip()
+            except Exception as exc:
+                print(f"[LinkedInRewriter] Web Gemini rewrite notice: {exc}. Using template rewriter.")
+        else:
+            print("[LinkedInRewriter] No browser page provided — using template rewriter (web Gemini unavailable).")
+        return self._template_rewrite(post_data)
+
+    def rewrite_for_linkedin_sync(self, post_data: Dict[str, Any]) -> str:
+        """Legacy sync wrapper used only when no event loop / page is available."""
+        return self._template_rewrite(post_data)

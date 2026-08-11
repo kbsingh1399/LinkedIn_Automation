@@ -23,15 +23,8 @@ async def main():
             context = browser.contexts[0] if browser.contexts else await browser.new_context()
             page = context.pages[0] if context.pages else await context.new_page()
         else:
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=str(settings.linkedin_user_data_dir),
-                channel="chrome",
-                headless=False,
-                no_viewport=True,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=["--start-maximized", "--disable-blink-features=AutomationControlled", "--test-type"]
-            )
-            page = context.pages[0] if context.pages else await context.new_page()
+            from utils.stealth_chrome import launch_stealth_chrome
+            context, page = await launch_stealth_chrome(p, profile="linkedin")
 
         await page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=30000)
         await asyncio.sleep(3)

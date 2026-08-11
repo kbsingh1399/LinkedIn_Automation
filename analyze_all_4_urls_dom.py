@@ -5,6 +5,7 @@ import urllib.request
 from pathlib import Path
 from playwright.async_api import async_playwright
 from config import settings
+from utils.stealth_chrome import launch_stealth_chrome, apply_stealth_window
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -123,24 +124,10 @@ async def main():
             browser = await p.chromium.connect_over_cdp("http://localhost:9222")
             context = browser.contexts[0] if browser.contexts else await browser.new_context()
             page = context.pages[0] if context.pages else await context.new_page()
+            await apply_stealth_window(context, page)
         else:
             print("🚀 Launching visible persistent Chrome browser...")
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=str(settings.linkedin_user_data_dir),
-                channel="chrome",
-                headless=False,
-                no_viewport=True,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=["--start-maximized", "--disable-blink-features=AutomationControlled", "--test-type"]
-            )
-            page = context.pages[0] if context.pages else await context.new_page()
-
-        # Set window maximized
-        try:
-            cdp = await page.context.new_cdp_session(page)
-            await cdp.send("Browser.setWindowBounds", {"windowId": 1, "bounds": {"windowState": "maximized"}})
-        except Exception:
-            pass
+            context, page = await launch_stealth_chrome(p, profile="linkedin")
 
         full_report = {}
 

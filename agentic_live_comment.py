@@ -1,13 +1,13 @@
 import asyncio
 import sys
-import json
-import random
 import urllib.request
 from pathlib import Path
 from playwright.async_api import async_playwright
 from config import settings
 from gemini_ai import GeminiAIClient
 from engagement_tracker import mark_engaged, already_engaged
+from utils.stealth_chrome import launch_stealth_chrome, apply_stealth_window
+from utils.playwright_utils import PlaywrightResilience
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -18,15 +18,6 @@ async def check_cdp(port: int = 9222) -> bool:
         return req.status == 200
     except Exception:
         return False
-
-async def human_type(page, element, text: str):
-    """Simulates human typing into an editable DOM field."""
-    await element.click()
-    await asyncio.sleep(0.3)
-    await element.fill("")
-    for char in text:
-        await page.keyboard.write(char)
-        await asyncio.sleep(random.uniform(0.015, 0.04))
 
 async def run_agentic_comment():
     print("=" * 70)
@@ -41,19 +32,10 @@ async def run_agentic_comment():
             browser = await p.chromium.connect_over_cdp("http://localhost:9222")
             context = browser.contexts[0] if browser.contexts else await browser.new_context()
             page = context.pages[0] if context.pages else await context.new_page()
+            await apply_stealth_window(context, page)
         else:
             print("🚀 Launching visible persistent Chrome session...")
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=str(settings.linkedin_user_data_dir),
-                channel="chrome",
-                headless=False,
-                no_viewport=True,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=["--start-maximized", "--disable-blink-features=AutomationControlled", "--test-type"]
-            )
-            page = context.pages[0] if context.pages else await context.new_page()
-
-        await page.bring_to_front()
+            context, page = await launch_stealth_chrome(p, profile="linkedin")
 
         if "linkedin.com/feed" not in page.url:
             print("🌐 Navigating to https://www.linkedin.com/feed/ ...")
@@ -146,9 +128,7 @@ async def run_agentic_comment():
             await comment_btn.click()
             await asyncio.sleep(1.5)
 
-        editor = await target_card.query_selector("div[contenteditable='true'], div[role='textbox']")
-        if not editor:
-            editor = await page.query_selector("div.comments-comment-box div[contenteditable='true']")
+        editor = await PlaywrightResilience.find_last_visible_editor(page)
 
         if not editor:
             print("❌ Could not locate TipTap comment editor box.")
@@ -156,7 +136,7 @@ async def run_agentic_comment():
 
         # Step 5: Type Comment into Editor
         print("✍️ Typing comment into TipTap rich text editor...")
-        await human_type(page, editor, ai_comment)
+        await PlaywrightResilience.human_type_with_mistakes(page, editor, ai_comment)
         await asyncio.sleep(1.5)
 
         await page.screenshot(path="step4_comment_written.png")

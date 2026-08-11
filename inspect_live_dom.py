@@ -20,12 +20,8 @@ async def main():
         if state_file.exists():
             context_kwargs["storage_state"] = str(state_file)
 
-        browser = await p.chromium.launch(
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled"]
-        )
-        context = await browser.new_context(**context_kwargs)
-        page = await context.new_page()
+        from utils.stealth_chrome import launch_stealth_chrome
+        context, page = await launch_stealth_chrome(p, profile="x")
 
         print("Navigating to https://x.com/home ...")
         await page.goto("https://x.com/home", wait_until="domcontentloaded")
@@ -57,7 +53,7 @@ async def main():
             sample = await tweet_texts[0].inner_text()
             print("\nSample tweet text:\n", sample[:150])
 
-        await browser.close()
+        await context.close()
 
 if __name__ == "__main__":
     asyncio.run(main())

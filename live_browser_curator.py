@@ -34,20 +34,9 @@ async def curate_live_x_posts(topics: list[str], total_count: int = 4):
     curated_posts = []
     posts_per_topic = max(1, total_count // len(topics))
 
+    from utils.stealth_chrome import launch_stealth_chrome
     async with async_playwright() as p:
-        context_kwargs = {
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "viewport": {"width": 1280, "height": 850}
-        }
-        if state_file.exists():
-            context_kwargs["storage_state"] = str(state_file)
-
-        browser = await p.chromium.launch(
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled"]
-        )
-        context = await browser.new_context(**context_kwargs)
-        page = await context.new_page()
+        context, page = await launch_stealth_chrome(p, profile="x")
 
         # Step 1: Check login status on X.com
         print("🔍 Checking X.com login session...")
@@ -179,17 +168,23 @@ async def curate_live_x_posts(topics: list[str], total_count: int = 4):
             print(f"✅ Selected {len(curated_topic)} REAL X posts with images for '{topic}'")
             curated_posts.extend(curated_topic)
 
-        await browser.close()
+        await context.close()
 
-    print(f"\n✍️ Rewriting {len(curated_posts)} REAL X posts for LinkedIn & exporting...")
+    print(f"\n✍️ Rewriting {len(curated_posts)} REAL X posts via Web Gemini & exporting...")
     rewriter = LinkedInRewriter()
     exporter = PostExporter()
 
-    for idx, post_data in enumerate(curated_posts, start=1):
-        rewritten = rewriter.rewrite_for_linkedin(post_data)
-        out_dir = exporter.export_post(idx, post_data, rewritten)
-        print(f"  └── [{idx}/{len(curated_posts)}] Exported to: {out_dir}")
-        print(f"      Source URL: {post_data['url']}")
+    async with async_playwright() as p:
+        gemini_context, gemini_page = await launch_stealth_chrome(p, profile="linkedin")
+        try:
+            for idx, post_data in enumerate(curated_posts, start=1):
+                rewritten = await rewriter.rewrite_for_linkedin(post_data, page=gemini_page)
+                topic_name = post_data.get("topic", "Tech")
+                out_dir = exporter.export_post(topic_name, idx, post_data, rewritten)
+                print(f"  └── [{idx}/{len(curated_posts)}] Exported to: {out_dir}")
+                print(f"      Source URL: {post_data['url']}")
+        finally:
+            await gemini_context.close()
 
     print(f"\n🎉 Successfully processed {len(curated_posts)} REAL X posts!")
     print(f"📁 Output Directory: {settings.output_dir.resolve()}")

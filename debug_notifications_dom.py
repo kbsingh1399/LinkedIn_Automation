@@ -8,16 +8,11 @@ async def debug_notifications():
     publisher = LinkedInPublisher(headless=False)
     
     async with async_playwright() as p:
+        from utils.stealth_chrome import launch_stealth_chrome
         print("🌐 Launching Chrome in visible mode for DOM Analysis on Notifications...")
-        context = await p.chromium.launch_persistent_context(
-            user_data_dir=str(publisher.user_data_dir),
-            channel="chrome",
-            headless=False,
-            viewport={"width": 1440, "height": 900},
-            args=["--disable-blink-features=AutomationControlled"]
+        context, page = await launch_stealth_chrome(
+            p, profile="linkedin", user_data_dir=publisher.user_data_dir
         )
-        
-        page = context.pages[0] if context.pages else await context.new_page()
         await page.goto("https://www.linkedin.com/notifications/", wait_until="domcontentloaded")
         await asyncio.sleep(4)
         
@@ -54,7 +49,8 @@ async def debug_notifications():
             card = cards[idx]
 
             card_text = (await card.inner_text()).strip()
-            print(f"📝 Text preview: {card_text[:120].replace('\n', ' ')}")
+            preview = card_text[:120].replace("\n", " ")
+            print(f"📝 Text preview: {preview}")
 
             # Extract links inside card
             links = await card.query_selector_all("a")

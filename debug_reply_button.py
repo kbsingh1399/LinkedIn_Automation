@@ -1,15 +1,10 @@
 import asyncio
 from playwright.async_api import async_playwright
+from utils.stealth_chrome import launch_stealth_chrome
 
 async def inspect_reply_button():
     async with async_playwright() as p:
-        context = await p.chromium.launch_persistent_context(
-            user_data_dir="user_data",
-            headless=False,
-            channel="chrome",
-            args=["--disable-blink-features=AutomationControlled"]
-        )
-        page = context.pages[0] if context.pages else await context.new_page()
+        context, page = await launch_stealth_chrome(p, profile="linkedin")
         await page.goto("https://www.linkedin.com/notifications/", wait_until="domcontentloaded")
         await asyncio.sleep(3)
 

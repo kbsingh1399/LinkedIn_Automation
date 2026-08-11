@@ -6,6 +6,7 @@ import urllib.request
 from pathlib import Path
 from playwright.async_api import async_playwright
 from config import settings
+from utils.stealth_chrome import launch_stealth_chrome, apply_stealth_window
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -36,25 +37,10 @@ async def analyze_linkedin_feed():
             browser = await p.chromium.connect_over_cdp("http://localhost:9222")
             context = browser.contexts[0] if browser.contexts else await browser.new_context()
             page = context.pages[0] if context.pages else await context.new_page()
+            await apply_stealth_window(context, page)
         else:
             print(f"🚀 Launching Chrome with persistent profile: {settings.linkedin_user_data_dir}")
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=str(settings.linkedin_user_data_dir),
-                channel="chrome",
-                headless=False,
-                no_viewport=True,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=[
-                    "--start-maximized",
-                    "--disable-blink-features=AutomationControlled",
-                    "--test-type",
-                    "--remote-debugging-port=9222"
-                ]
-            )
-            page = context.pages[0] if context.pages else await context.new_page()
-
-        # Bring tab to front
-        await page.bring_to_front()
+            context, page = await launch_stealth_chrome(p, profile="linkedin")
 
         print("\n🌐 Navigating to LinkedIn Feed: https://www.linkedin.com/feed/ ...")
         await page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=30000)

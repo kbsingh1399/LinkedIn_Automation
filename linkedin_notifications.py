@@ -86,6 +86,9 @@ class LinkedInNotificationsEngine:
                 else:
                     card = cards[idx]
 
+                if not await PlaywrightResilience.is_html_element_card(card):
+                    continue
+
                 # Extract notification headline text (e.g. "Manish Kumar, PMP mentioned you in a comment")
                 headline_el = await card.query_selector("a.nt-card__headline, [class*='nt-card__headline']")
                 text = (await headline_el.inner_text()).strip() if headline_el else (await card.inner_text()).strip()
@@ -226,22 +229,8 @@ class LinkedInNotificationsEngine:
                             except Exception:
                                 pass
                                 
-                        # 3. Now find the editor. 
-                        # We want the LAST visible editor, because nested reply boxes appear after the main comment box in the DOM.
-                        editor_locators = self.page.locator(
-                            "div[aria-label='Text editor for creating comment'], "
-                            "div.tiptap.ProseMirror, "
-                            "div[aria-label*='comment' i], "
-                            "div[contenteditable='true'][role='textbox'], "
-                            "div[contenteditable='true']"
-                        )
-                        editor = None
-                        count = await editor_locators.count()
-                        for i in range(count - 1, -1, -1):
-                            el = editor_locators.nth(i)
-                            if await el.is_visible():
-                                editor = await el.element_handle()
-                                break
+                        # 3. Body-level last-visible editor (never scoped to the notification card)
+                        editor = await PlaywrightResilience.find_last_visible_editor(self.page)
 
                         if editor:
                             await editor.scroll_into_view_if_needed()

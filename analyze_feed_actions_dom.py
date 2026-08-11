@@ -7,17 +7,9 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
 async def main():
-    user_data_dir = settings.linkedin_user_data_dir
+    from utils.stealth_chrome import launch_stealth_chrome
     async with async_playwright() as p:
-        context = await p.chromium.launch_persistent_context(
-            user_data_dir=str(user_data_dir),
-            channel="chrome",
-            headless=False,
-            no_viewport=True,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            args=["--start-maximized", "--remote-debugging-port=9223", "--disable-blink-features=AutomationControlled"]
-        )
-        page = context.pages[0] if context.pages else await context.new_page()
+        context, page = await launch_stealth_chrome(p, profile="linkedin")
         await page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=30000)
         await asyncio.sleep(5)
 

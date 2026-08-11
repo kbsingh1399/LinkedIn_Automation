@@ -4,6 +4,7 @@ import json
 import urllib.request
 from pathlib import Path
 from playwright.async_api import async_playwright
+from utils.stealth_chrome import launch_stealth_chrome, apply_stealth_window
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -133,15 +134,8 @@ async def main():
             browser = await p.chromium.connect_over_cdp("http://127.0.0.1:9222")
             context = browser.contexts[0] if browser.contexts else None
         else:
-            print("🚀 Launching Chrome in visible mode with --remote-debugging-port=9222 ...")
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=str(Path(r"c:\Users\SIGMA\Documents\LinkedIn_Automation\linkedin_user_data")),
-                channel="chrome",
-                headless=False,
-                no_viewport=True,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=["--start-maximized", "--remote-debugging-port=9222", "--disable-blink-features=AutomationControlled", "--test-type"]
-            )
+            print("🚀 Launching Chrome in visible stealth mode ...")
+            context, _ = await launch_stealth_chrome(p, profile="linkedin")
 
         pages = context.pages if context and context.pages else []
         page = pages[0] if pages else await context.new_page()

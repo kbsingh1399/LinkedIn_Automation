@@ -3,6 +3,7 @@ import os
 import sys
 from playwright.async_api import async_playwright
 from linkedin_publisher import LinkedInPublisher
+from utils.stealth_chrome import launch_stealth_chrome
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -10,29 +11,10 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 async def agentic_feed_dom():
     pub = LinkedInPublisher(headless=False)
     async with async_playwright() as p:
-        context = await p.chromium.launch_persistent_context(
-            user_data_dir=str(pub.user_data_dir),
-            channel="chrome",
-            headless=False,
-            viewport={"width": 1440, "height": 900},
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--test-type",
-                "--remote-debugging-port=9222"
-            ]
+        context, page = await launch_stealth_chrome(
+            p, profile="linkedin", user_data_dir=pub.user_data_dir
         )
-        page = context.pages[0] if context.pages else await context.new_page()
-        
-        # OS Maximize via CDP
-        try:
-            client = await context.new_cdp_session(page)
-            win = await client.send("Browser.getWindowForTarget")
-            await client.send("Browser.setWindowBounds", {"windowId": win["windowId"], "bounds": {"windowState": "maximized"}})
-        except Exception as e:
-            print(f"⚠️ Could not set window bounds via CDP: {e}")
-        
         await pub.ensure_logged_in(page)
-        await page.bring_to_front()
         
         print("\n🤖 [AGENTIC CONTROL] Navigating to LinkedIn Feed...")
         await page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded")

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Live DOM Button Debugger
 Opens the real Chrome profile and interactively probes every submit/reply/send
 button on Feed, Notifications, and Inbox pages.
@@ -9,8 +9,7 @@ import asyncio
 import json
 from pathlib import Path
 from playwright.async_api import async_playwright
-
-USER_DATA = str(Path(__file__).parent / "user_data")
+from utils.stealth_chrome import launch_stealth_chrome
 
 BUTTON_QUERIES = {
     "FEED_COMMENT_SUBMIT": [
@@ -147,26 +146,7 @@ async def highlight_element(page, selector: str):
 
 async def main():
     async with async_playwright() as p:
-        ctx = await p.chromium.launch_persistent_context(
-            user_data_dir=USER_DATA,
-            channel="chrome",
-            headless=False,
-            args=[
-                "--start-maximized",
-                "--disable-blink-features=AutomationControlled",
-                "--test-type",
-            ],
-            no_viewport=True,
-        )
-
-        page = ctx.pages[0] if ctx.pages else await ctx.new_page()
-        await page.bring_to_front()
-
-        cdp = await ctx.new_cdp_session(page)
-        await cdp.send("Browser.setWindowBounds", {
-            "windowId": (await cdp.send("Browser.getWindowForTarget"))["windowId"],
-            "bounds": {"windowState": "maximized"},
-        })
+        ctx, page = await launch_stealth_chrome(p, profile="linkedin")
 
         all_results = {}
 

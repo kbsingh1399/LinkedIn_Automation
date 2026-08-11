@@ -1,16 +1,10 @@
-﻿from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright
+from utils.stealth_chrome import launch_stealth_chrome_sync
 import time
 import json
 
 with sync_playwright() as p:
-    ctx = p.chromium.launch_persistent_context(
-        user_data_dir='user_data',
-        channel='chrome',
-        headless=False,
-        args=['--start-maximized','--disable-blink-features=AutomationControlled','--test-type'],
-        no_viewport=True
-    )
-    page = ctx.pages[0]
+    ctx, page = launch_stealth_chrome_sync(p, profile="linkedin")
     
     print('\n[NOTIFICATIONS] Navigating to notifications...')
     page.goto('https://www.linkedin.com/notifications/', wait_until='domcontentloaded')

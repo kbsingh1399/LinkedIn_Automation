@@ -30,32 +30,26 @@ async def run_e2e_verification():
     print(" 🛡️  EXECUTING 4-SKILL E2E VERIFICATION PROTOCOL  🛡️ ")
     print("=====================================================\n")
 
-    # Step 1: Gemini AI Key Loading & Dynamic Fallback Verification
-    print("--- [Step 1: Gemini AI Client & Key Rotation Audit] ---")
+    # Step 1: Gemini web-only client (no API keys)
+    print("--- [Step 1: Gemini AI Web-Only Client Audit] ---")
     ai = GeminiAIClient()
-    num_keys = len(ai.api_keys)
     sample_comment = await ai.generate_feed_comment(post_text="Testing supply chain resilience and lead time optimization during flood disruptions.", author_name="Verification Suite")
     ai_passed = sample_comment is not None and len(sample_comment) > 20
     report.log_result(
-        step_name="Gemini AI Key Rotation & Content Generation",
+        step_name="Gemini AI Web-Only Content Generation",
         passed=ai_passed,
-        evidence=f"API Keys Loaded: {num_keys} | Generated Comment: '{sample_comment}'"
+        evidence=f"Web-only client | Generated Comment: '{sample_comment}'"
     )
 
     # Step 2: Browser Session & Persistent Login Verification
     print("--- [Step 2: Playwright Chromium & Persistent Login Audit] ---")
     publisher = LinkedInPublisher(headless=False)
     
+    from utils.stealth_chrome import launch_stealth_chrome
     async with async_playwright() as p:
-        context = await p.chromium.launch_persistent_context(
-            user_data_dir=str(publisher.user_data_dir),
-            channel="chrome",
-            headless=False,
-            no_viewport=True,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            args=["--start-maximized", "--remote-debugging-port=9223", "--disable-blink-features=AutomationControlled"]
+        context, page = await launch_stealth_chrome(
+            p, profile="linkedin", user_data_dir=publisher.user_data_dir
         )
-        page = context.pages[0] if context.pages else await context.new_page()
 
         # Check Login Status
         logged_in = await publisher.ensure_logged_in(page)

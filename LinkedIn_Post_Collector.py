@@ -19,31 +19,37 @@ async def run_pipeline(topics: list[str], count_per_topic: int, headless: bool, 
     print(f"📌 Target Topics ({len(topics)}): {topics}")
     print(f"📊 Target Options Per Topic: {count_per_topic} (Total Posts: {len(topics) * count_per_topic})\n")
 
-    curator = XCurator(headless=headless)
-
-    if login:
-        await curator.perform_automated_x_login(None)
-
+    curator = XCurator(headless=False)
     rewriter = LinkedInRewriter()
     exporter = PostExporter()
     auditor = PostAuditor()
 
     total_exported = 0
     exported_option_dirs = []
+    pending_rewrites = []
 
     for topic in topics:
         print(f"🔍 Searching X.com live for topic: '{topic}'...")
         posts = await curator.search_and_curate_posts(topic, max_posts=count_per_topic)
         print(f"✅ Found {len(posts)} options with media for '{topic}'\n")
-
-        print(f"✍️ Rewriting & exporting {len(posts)} options for topic '{topic}'...")
         for opt_idx, post_data in enumerate(posts, start=1):
-            rewritten = rewriter.rewrite_for_linkedin(post_data)
-            out_dir = exporter.export_post(topic, opt_idx, post_data, rewritten)
-            total_exported += 1
-            exported_option_dirs.append((topic, opt_idx, out_dir))
-            print(f"  └── [Option {opt_idx:02d}] Exported to: {out_dir}")
-            print(f"      Source URL: {post_data.get('url', '')}")
+            pending_rewrites.append((topic, opt_idx, post_data))
+
+    print(f"✍️ Rewriting {len(pending_rewrites)} options via Web Gemini...")
+    from playwright.async_api import async_playwright
+    from utils.stealth_chrome import launch_stealth_chrome
+    async with async_playwright() as p:
+        gemini_context, gemini_page = await launch_stealth_chrome(p, profile="linkedin")
+        try:
+            for topic, opt_idx, post_data in pending_rewrites:
+                rewritten = await rewriter.rewrite_for_linkedin(post_data, page=gemini_page)
+                out_dir = exporter.export_post(topic, opt_idx, post_data, rewritten)
+                total_exported += 1
+                exported_option_dirs.append((topic, opt_idx, out_dir))
+                print(f"  └── [Option {opt_idx:02d}] Exported to: {out_dir}")
+                print(f"      Source URL: {post_data.get('url', '')}")
+        finally:
+            await gemini_context.close()
 
     print(f"\n🎉 Successfully processed and exported {total_exported} post options across {len(topics)} topics!")
     print(f"📁 Output Directory: {settings.output_dir.resolve()}\n")

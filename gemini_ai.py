@@ -27,6 +27,47 @@ class GeminiAIClient:
     def _cache_set(self, key: str, value: str) -> None:
         self._response_cache[key] = (value, time.time())
 
+    @staticmethod
+    def _cleanup_temp_image(image_path: Optional[str]) -> None:
+        if not image_path:
+            return
+        try:
+            if os.path.exists(image_path):
+                os.remove(image_path)
+        except Exception:
+            pass
+
+    async def _start_new_chat(self, gemini_page) -> None:
+        """Open a fresh Gemini conversation so prompts cannot contaminate each other."""
+        selectors = [
+            "button[aria-label*='New chat' i]",
+            "a[aria-label*='New chat' i]",
+            "button[data-test-id='new-chat-button']",
+            "button[aria-label*='New conversation' i]",
+            "a[aria-label*='New conversation' i]",
+            "button:has-text('New chat')",
+            "span:has-text('New chat')",
+        ]
+        try:
+            await gemini_page.bring_to_front()
+        except Exception:
+            pass
+        for sel in selectors:
+            try:
+                btn = await gemini_page.query_selector(sel)
+                if btn and await btn.is_visible():
+                    await btn.click()
+                    print("🆕 [GEMINI WEB] Started New chat for isolated generation.")
+                    await asyncio.sleep(1.2)
+                    return
+            except Exception:
+                continue
+        try:
+            await gemini_page.keyboard.press("Control+Shift+O")
+            await asyncio.sleep(0.8)
+        except Exception:
+            pass
+
     async def automate_google_login(self, page) -> bool:
         print("🌐 [GEMINI WEB] Attempting automated Google Sign-In...")
         try:
@@ -178,13 +219,16 @@ class GeminiAIClient:
                         print("❌ [GEMINI WEB] Login check timed out.")
                         return None
 
-        # 3. Find input textbox
+        # Isolate this generation so prior prompts cannot contaminate the reply
+        await self._start_new_chat(gemini_page)
+
+        # 3. Find input textbox (re-query after New chat remounts the editor)
         editor = await gemini_page.query_selector(".ql-editor, div[contenteditable='true'][role='textbox']")
         if not editor:
             print("❌ [GEMINI WEB] Could not locate prompt textbox editor.")
             return None
 
-        # 4. Upload image if provided and exists
+        # 4. Upload image if provided and exists (keep local file until the model replies)
         if image_path and os.path.exists(image_path):
             try:
                 print(f"🌐 [GEMINI WEB] Attaching image: {image_path}...")
@@ -203,7 +247,35 @@ class GeminiAIClient:
                     except Exception:
                         continue
 
-                # Approach B: Click '+' button, select 'Upload file' menu option, and bind file
+                # Approach B: expect_file_chooser while clicking Add/Upload (skill-required)
+                if not file_attached:
+                    plus_selectors = [
+                        "button[aria-label*='Add']",
+                        "button[aria-label*='Upload']",
+                        "button[aria-label*='Attach']",
+                        "button[aria-label*='plus']",
+                        "button.uploader-button",
+                        "div[role='button']:has-text('+')",
+                    ]
+                    for p_sel in plus_selectors:
+                        plus_btn = await gemini_page.query_selector(p_sel)
+                        if not plus_btn:
+                            continue
+                        try:
+                            if not await plus_btn.is_visible():
+                                continue
+                            async with gemini_page.expect_file_chooser(timeout=4000) as fc_info:
+                                await plus_btn.click()
+                            chooser = await fc_info.value
+                            await chooser.set_files(image_path)
+                            file_attached = True
+                            print("🌐 [GEMINI WEB] Attached image via expect_file_chooser()!")
+                            await asyncio.sleep(3.5)
+                            break
+                        except Exception:
+                            continue
+
+                # Approach C: menu click then bind hidden file input
                 if not file_attached:
                     plus_btn = await gemini_page.query_selector(
                         "button[aria-label*='Add'], "
@@ -217,8 +289,6 @@ class GeminiAIClient:
                         try:
                             await plus_btn.click()
                             await asyncio.sleep(0.8)
-                            
-                            # Find hidden file input exposed after clicking upload menu
                             f_inputs = await gemini_page.locator("input[type='file']").all()
                             for f_in in f_inputs:
                                 try:
@@ -233,7 +303,7 @@ class GeminiAIClient:
                         except Exception as up_err:
                             print(f"⚠️ Upload menu notice: {up_err}")
 
-                # Approach C: Paste image via Clipboard API + Control+v
+                # Approach D: Paste image via Clipboard API + Control+v
                 if not file_attached:
                     try:
                         with open(image_path, "rb") as img_f:
@@ -265,11 +335,6 @@ class GeminiAIClient:
 
             except Exception as e:
                 print(f"⚠️ [GEMINI WEB] Error uploading image: {e}")
-            finally:
-                try:
-                    os.remove(image_path)
-                except Exception:
-                    pass
 
         # 5. Count existing model responses before submitting
         prev_responses = await gemini_page.query_selector_all("model-response")
@@ -334,9 +399,10 @@ class GeminiAIClient:
 
         if response_text:
             print(f"🌐 [GEMINI WEB] Successfully fetched response! (Length: {len(response_text)})")
+            self._cleanup_temp_image(image_path)
             return response_text
-        
-        print("❌ [GEMINI WEB] Response streaming timeout.")
+
+        print("❌ [GEMINI WEB] Response streaming timeout. Temp image kept for retry.")
         return None
 
     async def generate_content(self, prompt: str, system_instruction: str = "", page=None, image_path: Optional[str] = None) -> Optional[str]:

@@ -1,15 +1,11 @@
 import asyncio
 from playwright.async_api import async_playwright
 from config import settings
+from utils.stealth_chrome import launch_stealth_chrome
 
 async def main():
     async with async_playwright() as p:
-        context = await p.chromium.launch_persistent_context(
-            user_data_dir=str(settings.linkedin_user_data_dir),
-            headless=False,
-            viewport={"width": 1280, "height": 850}
-        )
-        page = context.pages[0] if context.pages else await context.new_page()
+        context, page = await launch_stealth_chrome(p, profile="linkedin")
         await page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded")
         await page.wait_for_timeout(5000)
 

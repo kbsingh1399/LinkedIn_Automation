@@ -10,13 +10,19 @@ from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "engagement_history.db"
 
-# Cooldown in seconds before the same target is eligible again
+# None = permanent (never eligible again, never purged)
 COOLDOWN = {
-    "feed_comment":       7 * 24 * 3600,   # 7 days  -- same post
-    "notification_reply": 3 * 24 * 3600,   # 3 days  -- same notification
-    "inbox_reply":        1 * 24 * 3600,   # 1 day   -- same DM partner
-    "connection_request": 30 * 24 * 3600,  # 30 days -- same member
+    "feed_comment":                     7 * 24 * 3600,
+    "feed_like":                        7 * 24 * 3600,
+    "notification_reply":               3 * 24 * 3600,
+    "inbox_reply":                      1 * 24 * 3600,
+    "connection_request":               30 * 24 * 3600,
+    "connection_request_weekly_limit":  7 * 24 * 3600,
+    "published_option":                 None,
+    "publisher_slot":                   None,
 }
+
+PERMANENT_TYPES = {k for k, v in COOLDOWN.items() if v is None}
 
 
 def _conn() -> sqlite3.Connection:
@@ -41,18 +47,21 @@ def _make_id(text: str) -> str:
 def already_engaged(eng_type: str, raw_identifier: str) -> bool:
     """
     Returns True if we already engaged with this target within cooldown.
-    eng_type: "feed_comment" | "notification_reply" | "inbox_reply"
-    raw_identifier: post text / notification text / partner name
+    Permanent types (published_option, publisher_slot) stay locked forever.
     """
     ident = _make_id(raw_identifier)
     cooldown = COOLDOWN.get(eng_type, 86400)
-    cutoff = int(time.time()) - cooldown
     with _conn() as c:
         row = c.execute(
             "SELECT engaged_at FROM engagements WHERE type=? AND identifier=?",
             (eng_type, ident)
         ).fetchone()
-    return bool(row and row[0] > cutoff)
+    if not row:
+        return False
+    if eng_type in PERMANENT_TYPES or cooldown is None:
+        return True
+    cutoff = int(time.time()) - int(cooldown)
+    return bool(row[0] > cutoff)
 
 
 def mark_engaged(eng_type: str, raw_identifier: str) -> None:
@@ -76,13 +85,21 @@ def engagement_summary() -> dict:
 
 
 def clear_old_records() -> int:
-    """Purge records older than the longest cooldown. Returns deleted count."""
-    max_cooldown = max(COOLDOWN.values())
+    """Purge records older than the longest finite cooldown. Never delete permanent types."""
+    finite = [v for k, v in COOLDOWN.items() if v is not None and k not in PERMANENT_TYPES]
+    max_cooldown = max(finite) if finite else 30 * 24 * 3600
     cutoff = int(time.time()) - max_cooldown
+    placeholders = ",".join("?" * len(PERMANENT_TYPES)) if PERMANENT_TYPES else ""
     with _conn() as c:
-        deleted = c.execute(
-            "DELETE FROM engagements WHERE engaged_at < ?", (cutoff,)
-        ).rowcount
+        if placeholders:
+            deleted = c.execute(
+                f"DELETE FROM engagements WHERE engaged_at < ? AND type NOT IN ({placeholders})",
+                (cutoff, *sorted(PERMANENT_TYPES)),
+            ).rowcount
+        else:
+            deleted = c.execute(
+                "DELETE FROM engagements WHERE engaged_at < ?", (cutoff,)
+            ).rowcount
     return deleted
 
 
@@ -105,7 +122,6 @@ def get_today_count(eng_type: str = None) -> int:
 
 def get_weekly_count(eng_type: str = None) -> int:
     """Return total engagements completed in the last 7 days (rolling 168 hours)."""
-    import time
     seven_days_ago_ts = int(time.time()) - (7 * 24 * 3600)
     with _conn() as c:
         if eng_type:
@@ -122,6 +138,7 @@ def get_weekly_count(eng_type: str = None) -> int:
 
 DAILY_CAPS = {
     "feed_comment": 20,
+    "feed_like": 40,
     "notification_reply": 20,
     "inbox_reply": 25,
     "connection_request": 20,
@@ -129,6 +146,7 @@ DAILY_CAPS = {
 
 WEEKLY_CAPS = {
     "feed_comment": 100,
+    "feed_like": 200,
     "notification_reply": 100,
     "inbox_reply": 120,
     "connection_request": 80,
@@ -175,6 +193,10 @@ def update_daily_tracker_file() -> None:
     feed_cap = DAILY_CAPS["feed_comment"]
     feed_left = max(0, feed_cap - feed_done)
 
+    like_done = get_today_count("feed_like")
+    like_cap = DAILY_CAPS["feed_like"]
+    like_left = max(0, like_cap - like_done)
+
     notif_done = get_today_count("notification_reply")
     notif_cap = DAILY_CAPS["notification_reply"]
     notif_left = max(0, notif_cap - notif_done)
@@ -187,7 +209,8 @@ def update_daily_tracker_file() -> None:
     conn_cap = DAILY_CAPS["connection_request"]
     conn_left = max(0, conn_cap - conn_done)
 
-    status_text = "ACTIVE (Within Safe Daily Caps)" if (feed_left > 0 or notif_left > 0 or inbox_left > 0 or conn_left > 0) else "ALL DAILY CAPS COMPLETED TILL MIDNIGHT"
+    remaining = feed_left + like_left + notif_left + inbox_left + conn_left
+    status_text = "ACTIVE (Within Safe Daily Caps)" if remaining > 0 else "ALL DAILY CAPS COMPLETED TILL MIDNIGHT"
 
     content = f"""====================================================
 LINKEDIN AUTOMATION - DAILY TRACKER ({today_str})
@@ -197,6 +220,10 @@ Last Updated: {timestamp_str}
 • Feed Comments:
   - Done Today: {feed_done} / {feed_cap}
   - Remaining:  {feed_left}
+
+• Feed Likes:
+  - Done Today: {like_done} / {like_cap}
+  - Remaining:  {like_left}
 
 • Notification Replies:
   - Done Today: {notif_done} / {notif_cap}
@@ -220,16 +247,15 @@ STATUS: {status_text}
         print(f"⚠️ Could not update daily_engagement_tracker.txt: {e}")
 
 
-def check_daily_limit(eng_type: str, max_limit: int = 15) -> bool:
+def check_daily_limit(eng_type: str, max_limit: int = None) -> bool:
     """Returns True if daily limit has been reached or exceeded."""
     update_daily_tracker_file()
+    cap = max_limit if max_limit is not None else DAILY_CAPS.get(eng_type, 15)
     current = get_today_count(eng_type)
-    if current >= max_limit:
-        print(f"🛑 [Rate Limit] Daily cap reached for {eng_type} ({current}/{max_limit}). Skipping.")
+    if current >= cap:
+        print(f"🛑 [Rate Limit] Daily cap reached for {eng_type} ({current}/{cap}). Skipping.")
         return True
     return False
 
 # Initialize txt tracker on module load
 update_daily_tracker_file()
-
-

@@ -3,11 +3,11 @@ import random
 import sys
 import os
 import time
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from playwright.async_api import Page
 from utils.playwright_utils import PlaywrightResilience
 from gemini_ai import GeminiAIClient
-from engagement_tracker import already_engaged, mark_engaged
+from engagement_tracker import already_engaged, mark_engaged, check_daily_limit, get_pacing_multiplier, get_today_count, DAILY_CAPS
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -17,6 +17,34 @@ class LinkedInFeedEngine:
         self.page = page
         self.preproduction = preproduction
         self.ai = GeminiAIClient()
+
+    async def _should_skip_feed_card(self, card, author: str, post_text: str) -> Optional[str]:
+        """Skip own posts, promoted/suggested cards, and company pages."""
+        raw = ""
+        try:
+            raw = (await card.inner_text()).lower()
+        except Exception:
+            raw = (post_text or "").lower()
+
+        head = "\n".join(raw.splitlines()[:10])
+        if any(marker in raw for marker in ("promoted", "sponsored")) or "suggested" in head:
+            return "promoted/suggested"
+        if " • you" in head or "\nyou\n" in raw[:400] or head.strip().startswith("you\n"):
+            return "own post"
+        try:
+            you_el = await card.query_selector(
+                "span.update-components-actor__supplementary-actor-info, "
+                "span:text-is('You')"
+            )
+            if you_el:
+                label = (await you_el.inner_text()).strip().lower()
+                if label == "you" or label.startswith("you"):
+                    return "own post"
+        except Exception:
+            pass
+        if PlaywrightResilience.is_company_name(author):
+            return "company/brand page"
+        return None
 
     async def process_feed_posts(self, max_posts: int = 3) -> List[Dict[str, Any]]:
         print(f"\n📱 Navigating to LinkedIn Feed (Target: {max_posts} posts)...")
@@ -74,13 +102,20 @@ class LinkedInFeedEngine:
         print(f"🔍 Found {len(post_cards)} post cards on feed viewport.")
         engaged = []
 
-        from engagement_tracker import check_daily_limit, get_pacing_multiplier
         pacing = get_pacing_multiplier()
-        if check_daily_limit("feed_comment", 20):
-            print("ℹ️ [Feed Mode] Daily comment quota (20/20) reached. Running in LIKE-ONLY mode for feed posts.")
+        comment_cap = DAILY_CAPS["feed_comment"]
+        like_cap = DAILY_CAPS["feed_like"]
+        liked_this_cycle = 0
+        if check_daily_limit("feed_comment", comment_cap):
+            print(f"ℹ️ [Feed Mode] Daily comment quota ({comment_cap}/{comment_cap}) reached. Running in LIKE-ONLY mode (cycle budget {max_posts}).")
 
         for idx, card in enumerate(post_cards):
+            comment_capped = get_today_count("feed_comment") >= comment_cap
+            like_capped = get_today_count("feed_like") >= like_cap
             if len(engaged) >= max_posts:
+                break
+            if comment_capped and (liked_this_cycle >= max_posts or like_capped):
+                print("ℹ️ [Feed] Comment cap reached and like cycle budget filled. Stopping feed.")
                 break
             try:
                 # Scroll card into view
@@ -168,6 +203,11 @@ class LinkedInFeedEngine:
                 if len(post_text) < 20:
                     continue
 
+                skip_reason = await self._should_skip_feed_card(card, author, post_text)
+                if skip_reason:
+                    print(f"  [SKIP] {author}: {skip_reason}.")
+                    continue
+
                 # Dedup: skip if we already commented on this post within 7 days
                 dedup_key = f"{author}::{post_text[:200]}"
                 if already_engaged("feed_comment", dedup_key):
@@ -248,8 +288,8 @@ class LinkedInFeedEngine:
                 except Exception as img_err:
                     print(f"⚠️ Could not capture post image/screenshot: {img_err}")
 
-                # Step 1: Like Post (Runs unconditionally for every post card, even if comment quota is exhausted)
-                if not self.preproduction:
+                # Step 1: Like Post — independent daily like cap, never unbounded after comment cap
+                if not self.preproduction and get_today_count("feed_like") < like_cap and not already_engaged("feed_like", dedup_key):
                     await asyncio.sleep(random.uniform(1.0, 2.2) * pacing)
                     like_btn = await card.query_selector("button[aria-label*='Reaction button' i], button.react-button__trigger, button[aria-label*='Like' i], button:has-text('Like')")
                     if not like_btn:
@@ -284,6 +324,8 @@ class LinkedInFeedEngine:
                                 await asyncio.sleep(random.uniform(0.4, 0.8) * pacing)
                                 await like_btn.click(force=True)
                                 print(f"👍 Liked {author}'s post")
+                                mark_engaged("feed_like", dedup_key)
+                                liked_this_cycle += 1
                                 await asyncio.sleep(random.uniform(1.2, 2.0) * pacing)
                                 await self.page.screenshot(path="step1_post_liked.png")
                             else:
@@ -326,10 +368,8 @@ class LinkedInFeedEngine:
                         except Exception:
                             pass
 
-                    # Step 4 & Step 5: Type Comment & Submit with Screenshot Verifications
-                    editor = await card.query_selector("div[aria-label='Text editor for creating comment'], div.tiptap.ProseMirror, div[aria-label*='comment' i], div[contenteditable='true'], div[role='textbox']")
-                    if not editor:
-                        editor = await self.page.query_selector("div[aria-label='Text editor for creating comment'], div.comments-comment-box div[contenteditable='true'], div.tiptap.ProseMirror, div[aria-label*='comment' i], div[contenteditable='true'][role='textbox']")
+                    # Step 4 & Step 5: Body-level last-visible editor (never scoped to the card)
+                    editor = await PlaywrightResilience.find_last_visible_editor(self.page)
 
                     if editor:
                         await self.page.bring_to_front()

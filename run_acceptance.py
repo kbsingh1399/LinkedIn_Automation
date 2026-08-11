@@ -9,6 +9,7 @@ from linkedin_publisher import LinkedInPublisher
 from linkedin_feed import LinkedInFeedEngine
 from linkedin_notifications import LinkedInNotificationsEngine
 from linkedin_inbox import LinkedInInboxEngine
+from utils.stealth_chrome import launch_stealth_chrome, apply_stealth_window
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -153,29 +154,11 @@ async def run_acceptance():
             browser = await p.chromium.connect_over_cdp("http://localhost:9222")
             context = browser.contexts[0] if browser.contexts else await browser.new_context()
             page = context.pages[0] if context.pages else await context.new_page()
-            await page.bring_to_front()
+            await apply_stealth_window(context, page)
         else:
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=str(publisher.user_data_dir),
-                channel="chrome",
-                headless=is_headless,
-                no_viewport=True,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=["--new-window", "--start-maximized", "--disable-blink-features=AutomationControlled", "--test-type"]
+            context, page = await launch_stealth_chrome(
+                p, profile="linkedin", user_data_dir=publisher.user_data_dir
             )
-            page = context.pages[0] if context.pages else await context.new_page()
-
-        # Force OS-level maximize via CDP
-        try:
-            cdp = await context.new_cdp_session(page)
-            window_id = (await cdp.send("Browser.getWindowForTarget"))["windowId"]
-            await cdp.send("Browser.setWindowBounds", {
-                "windowId": window_id,
-                "bounds": {"windowState": "maximized"}
-            })
-            await cdp.detach()
-        except Exception:
-            pass
 
         # ── GATE 1: Login ──────────────────────────────────────────
         print("\n[GATE 1] Verifying / Establishing LinkedIn Session...")

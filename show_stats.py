@@ -8,7 +8,7 @@ import sqlite3
 import datetime
 import time
 from pathlib import Path
-from engagement_tracker import DB_PATH, COOLDOWN, get_today_count
+from engagement_tracker import DB_PATH, COOLDOWN, DAILY_CAPS, get_today_count
 
 # Ensure UTF-8 output encoding for Windows terminal console
 if hasattr(sys.stdout, 'reconfigure'):
@@ -35,9 +35,11 @@ def print_dashboard():
         today_stats = {r[0]: r[1] for r in today_rows}
 
         print("\n 📈 TODAY'S ENGAGEMENT ACTIVITY (Since Midnight):")
-        print(f"   • Feed Comments Posted:     {today_stats.get('feed_comment', 0)} / 15 (Daily Cap)")
-        print(f"   • Notification Replies:     {today_stats.get('notification_reply', 0)} / 20 (Daily Cap)")
-        print(f"   • Inbox DMs Responded:      {today_stats.get('inbox_reply', 0)} / 25 (Daily Cap)")
+        print(f"   • Feed Comments Posted:     {today_stats.get('feed_comment', 0)} / {DAILY_CAPS['feed_comment']} (Daily Cap)")
+        print(f"   • Feed Likes:               {today_stats.get('feed_like', 0)} / {DAILY_CAPS['feed_like']} (Daily Cap)")
+        print(f"   • Notification Replies:     {today_stats.get('notification_reply', 0)} / {DAILY_CAPS['notification_reply']} (Daily Cap)")
+        print(f"   • Inbox DMs Responded:      {today_stats.get('inbox_reply', 0)} / {DAILY_CAPS['inbox_reply']} (Daily Cap)")
+        print(f"   • Connection Requests:      {today_stats.get('connection_request', 0)} / {DAILY_CAPS['connection_request']} (Daily Cap)")
         print(f"   ------------------------------------------------")
         print(f"   • TOTAL TODAY:              {sum(today_stats.values())} engagements")
 
@@ -57,12 +59,18 @@ def print_dashboard():
         # 3. Active Cooldown Window Targets
         print("\n ⏳ ACTIVE DEDUPLICATION COOLDOWN WINDOWS:")
         for eng_type, seconds in COOLDOWN.items():
+            if seconds is None:
+                active_count = c.execute(
+                    "SELECT COUNT(*) FROM engagements WHERE type=?", (eng_type,)
+                ).fetchone()[0]
+                print(f"   • {eng_type:<32}: {active_count} targets locked (permanent)")
+                continue
             days = seconds // 86400
             cutoff = int(time.time()) - seconds
             active_count = c.execute(
                 "SELECT COUNT(*) FROM engagements WHERE type=? AND engaged_at >= ?", (eng_type, cutoff)
             ).fetchone()[0]
-            print(f"   • {eng_type:<20}: {active_count} targets locked ({days} day cooldown)")
+            print(f"   • {eng_type:<32}: {active_count} targets locked ({days} day cooldown)")
 
     print("\n" + "="*60 + "\n")
 

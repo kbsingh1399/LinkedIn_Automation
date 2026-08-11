@@ -7,21 +7,9 @@ async def main():
     state_file = settings.user_data_dir / "storage_state.json"
     print("Storage state exists:", state_file.exists())
 
+    from utils.stealth_chrome import launch_stealth_chrome
     async with async_playwright() as p:
-        context_kwargs = {
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "viewport": {"width": 1280, "height": 800}
-        }
-        if state_file.exists():
-            context_kwargs["storage_state"] = str(state_file)
-
-        # Launch Chromium with args to avoid connection resets
-        browser = await p.chromium.launch(
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled", "--ignore-certificate-errors"]
-        )
-        context = await browser.new_context(**context_kwargs)
-        page = await context.new_page()
+        context, page = await launch_stealth_chrome(p, profile="x")
 
         search_url = "https://x.com/search?q=Python%20filter%3Aimages&f=top"
         print(f"Navigating to {search_url} ...")
@@ -85,7 +73,7 @@ async def main():
         except Exception as e:
             print("Execution error:", e)
         finally:
-            await browser.close()
+            await context.close()
 
 if __name__ == "__main__":
     asyncio.run(main())

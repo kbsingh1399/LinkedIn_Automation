@@ -89,18 +89,105 @@ class PlaywrightResilience:
                 continue
         return False
 
+    # Adjacent QWERTY neighbors — typos replace the target with one of these, never a random letter.
+    ADJACENT_KEYS = {
+        "a": "qwsz", "b": "vghn", "c": "xdfv", "d": "ersfcx",
+        "e": "wrsd", "f": "rtgdcv", "g": "tyhfvb", "h": "yujgbn",
+        "i": "uojk", "j": "uikhnm", "k": "ijolm", "l": "kop",
+        "m": "njk", "n": "bhjm", "o": "iplk", "p": "ol",
+        "q": "wa", "r": "edft", "s": "awedxz", "t": "rfgy",
+        "u": "yhji", "v": "cfgb", "w": "qeas", "x": "zsdc",
+        "y": "tghu", "z": "asx",
+        "1": "2q", "2": "13w", "3": "24e", "4": "35r",
+        "5": "46t", "6": "57y", "7": "68u", "8": "79i",
+        "9": "80o", "0": "9p",
+    }
+
+    COMMENT_EDITOR_SELECTOR = (
+        "div[aria-label='Text editor for creating comment'], "
+        "div.comments-comment-box div[contenteditable='true'], "
+        "div.tiptap.ProseMirror, "
+        "div[aria-label*='comment' i], "
+        "div[contenteditable='true'][role='textbox']"
+    )
+
+    ALLOWED_CARD_TAGS = {"ARTICLE", "DIV", "LI", "SECTION", "A"}
+
     @staticmethod
     async def human_type_with_mistakes(page: Page, element, text: str):
-        """Types with realistic human keystroke timing (25-65ms) and natural word pauses."""
+        """
+        Skill-accurate human typing:
+          - 25-65ms per key
+          - <=1.5% typo rate, max 2 typos, adjacent QWERTY only, then backspace-correct
+          - 4% of spaces pause 0.5s-1.2s
+        """
+        try:
+            await page.bring_to_front()
+        except Exception:
+            pass
         await element.focus()
         await asyncio.sleep(random.uniform(0.3, 0.6))
 
+        typos_done = 0
         for char in text:
+            if (
+                char.isalnum()
+                and typos_done < 2
+                and random.random() < 0.015
+            ):
+                neighbors = PlaywrightResilience.ADJACENT_KEYS.get(char.lower(), "")
+                if neighbors:
+                    wrong = random.choice(neighbors)
+                    if char.isupper():
+                        wrong = wrong.upper()
+                    await element.type(wrong, delay=random.randint(25, 65))
+                    await asyncio.sleep(random.uniform(0.12, 0.32))
+                    await page.keyboard.press("Backspace")
+                    await asyncio.sleep(random.uniform(0.05, 0.16))
+                    typos_done += 1
+
             await element.type(char, delay=random.randint(25, 65))
-            if char == ' ' and random.random() < 0.03:
-                await asyncio.sleep(random.uniform(0.3, 0.8))
+            if char == " " and random.random() < 0.04:
+                await asyncio.sleep(random.uniform(0.5, 1.2))
 
         await asyncio.sleep(random.uniform(0.3, 0.6))
+
+    @staticmethod
+    async def find_last_visible_editor(page: Page, timeout_ms: int = 4000):
+        """
+        Body-level editor lookup. LinkedIn injects TipTap comment boxes at <body>,
+        outside the post card. Always take the LAST visible editor (nested reply).
+        """
+        try:
+            await page.bring_to_front()
+        except Exception:
+            pass
+        locators = page.locator(PlaywrightResilience.COMMENT_EDITOR_SELECTOR)
+        try:
+            await locators.last.wait_for(state="visible", timeout=timeout_ms)
+        except Exception:
+            pass
+        try:
+            count = await locators.count()
+        except Exception:
+            return None
+        for i in range(count - 1, -1, -1):
+            el = locators.nth(i)
+            try:
+                if await el.is_visible():
+                    return await el.element_handle()
+            except Exception:
+                continue
+        return None
+
+    @staticmethod
+    async def is_html_element_card(card) -> bool:
+        """Filter SVG/text nodes from broad class selectors (notification cards)."""
+        try:
+            tag = await card.evaluate("el => el && el.tagName ? el.tagName : ''")
+            return bool(tag) and str(tag).upper() in PlaywrightResilience.ALLOWED_CARD_TAGS
+        except Exception:
+            return False
 
     @staticmethod
     async def safe_mouse_move(page: Page, target_x: int, target_y: int):
@@ -203,19 +290,8 @@ class PlaywrightResilience:
 
     @staticmethod
     async def random_viewport_resize(page: Page, context):
-        """Occasionally resizes the viewport slightly."""
-        if random.random() < 0.22:
-            try:
-                current = page.viewport_size or {"width": 1280, "height": 850}
-                new_width = current["width"] + random.randint(-120, 120)
-                new_height = current["height"] + random.randint(-80, 80)
-                new_width = max(1100, min(new_width, 1600))
-                new_height = max(700, min(new_height, 1100))
-                
-                await page.set_viewport_size({"width": new_width, "height": new_height})
-                await asyncio.sleep(random.uniform(1.5, 3.5))
-            except:
-                pass
+        """No-op: stealth skill forbids a Playwright-fixed viewport."""
+        return
 
     @staticmethod
     async def dismiss_blocking_overlays(page: Page) -> bool:

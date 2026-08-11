@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from playwright.async_api import async_playwright
 from linkedin_publisher import LinkedInPublisher
+from utils.stealth_chrome import launch_stealth_chrome, apply_stealth_window
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -127,18 +128,11 @@ async def main():
             browser = await p.chromium.connect_over_cdp("http://localhost:9222")
             context = browser.contexts[0] if browser.contexts else await browser.new_context()
             page = context.pages[0] if context.pages else await context.new_page()
-            await page.bring_to_front()
+            await apply_stealth_window(context, page)
         else:
-            user_data_dir = str(publisher.user_data_dir)
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=user_data_dir,
-                channel="chrome",
-                headless=False,
-                no_viewport=True,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=["--new-window", "--start-maximized", "--disable-blink-features=AutomationControlled"]
+            context, page = await launch_stealth_chrome(
+                p, profile="linkedin", user_data_dir=publisher.user_data_dir
             )
-            page = context.pages[0] if context.pages else await context.new_page()
 
         print("🔍 Verifying LinkedIn Session...")
         await publisher.ensure_logged_in(page)

@@ -2,7 +2,7 @@ import asyncio
 import sys
 import json
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 from playwright.async_api import async_playwright
 from config import settings
 
@@ -133,26 +133,15 @@ class LinkedInPublisher:
                 pass
 
         from config import find_free_port
+        from utils.stealth_chrome import launch_stealth_chrome
         pub_port = find_free_port(19002)
         async with async_playwright() as p:
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=str(self.user_data_dir),
-                channel="chrome",
-                headless=self.headless,
-                no_viewport=True,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=[
-                    "--new-window", 
-                    "--start-maximized", 
-                    f"--remote-debugging-port={pub_port}", 
-                    "--disable-blink-features=AutomationControlled", 
-                    "--test-type",
-                    "--disable-background-timer-throttling",
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding"
-                ]
+            context, target_page = await launch_stealth_chrome(
+                p,
+                profile="linkedin",
+                user_data_dir=self.user_data_dir,
+                debug_port=pub_port,
             )
-            target_page = context.pages[0] if context.pages else await context.new_page()
 
             logged_in = await self.ensure_logged_in(target_page)
             if not logged_in:
@@ -326,18 +315,11 @@ class LinkedInPublisher:
 
 async def main():
     publisher = LinkedInPublisher(headless=False)
-    # Check login session
+    from utils.stealth_chrome import launch_stealth_chrome
     async with async_playwright() as p:
-        context = await p.chromium.launch_persistent_context(
-            user_data_dir=str(publisher.user_data_dir),
-            channel="chrome",
-            headless=False,
-            no_viewport=True,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            args=["--start-maximized", "--disable-blink-features=AutomationControlled", "--test-type"]
-
+        context, page = await launch_stealth_chrome(
+            p, profile="linkedin", user_data_dir=publisher.user_data_dir
         )
-        page = context.pages[0] if context.pages else await context.new_page()
         await publisher.ensure_logged_in(page)
         await context.close()
 
