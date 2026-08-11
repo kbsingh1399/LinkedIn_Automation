@@ -142,6 +142,12 @@ class LinkedInFeedEngine:
                 author = raw_author.splitlines()[0] if raw_author else ""
                 if "•" in author:
                     author = author.split("•")[0].strip()
+
+                import re
+                match = re.search(r'^View\s+(.+?)(?:[’\']s?)\s+profile$', author, re.IGNORECASE)
+                if match:
+                    author = match.group(1).strip()
+
                 if not author:
                     author = "LinkedIn Creator"
 
