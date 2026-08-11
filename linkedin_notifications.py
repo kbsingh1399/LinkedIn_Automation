@@ -120,8 +120,6 @@ class LinkedInNotificationsEngine:
                         await self.page.bring_to_front()
                         await asyncio.sleep(0.5)
 
-                        await self.page.screenshot(path="step6_2_thread_opened.png")
-
                         # Closed Thread Verification Check: Detect if comments are disabled or thread is closed at our end
                         closed_banner = await self.page.query_selector(
                             "div[class*='comments-disabled'], "
@@ -140,6 +138,7 @@ class LinkedInNotificationsEngine:
                         # Extract context from the opened page before replying
                         post_context = ""
                         parent_comment = ""
+                        post_container = None
                         try:
                             # Try to get the specific post container first
                             post_els = await self.page.query_selector_all("div.feed-shared-update-v2, article")
@@ -148,6 +147,7 @@ class LinkedInNotificationsEngine:
                                 post_els = await self.page.query_selector_all("main, div.core-rail")
                                 
                             if post_els:
+                                post_container = post_els[0]
                                 post_texts = [(await el.inner_text()).strip() for el in post_els]
                                 post_texts = [t for t in post_texts if len(t) > 50]
                                 if post_texts:
@@ -160,6 +160,16 @@ class LinkedInNotificationsEngine:
                                 parent_comment = (await comment_els[0].inner_text()).strip()[:2000]
                         except Exception as e:
                             print(f"⚠️ Could not extract full context: {e}")
+                            
+                        # Take high quality targeted screenshot of the post/thread, not the entire page
+                        if post_container:
+                            try:
+                                await post_container.scroll_into_view_if_needed()
+                                await post_container.screenshot(path="step6_2_thread_opened.png")
+                            except Exception:
+                                await self.page.screenshot(path="step6_2_thread_opened.png")
+                        else:
+                            await self.page.screenshot(path="step6_2_thread_opened.png")
                             
                         # Generate the reply using the full context AND the screenshot!
                         print("🧠 [GEMINI] Generating context-aware reply using text and Vision...")
